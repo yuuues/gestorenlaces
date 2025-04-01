@@ -328,7 +328,7 @@ function FestivosScreen({ onBack }) {
             <option value="">Select a holiday type</option>
             {tiposFestivo.map(tipo => (
               <option key={tipo.id} value={tipo.id}>
-                {tipo.nombre} ({tipo.isHoras ? 'Hours-Based' : 'Full Day'})
+                {tipo.nombre} ({tipo.isHoras === 1 || tipo.isHoras === "1" ? 'Hours-Based' : 'Full Day'})
               </option>
             ))}
           </select>

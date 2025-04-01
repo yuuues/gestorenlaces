@@ -68,8 +68,7 @@ const createTables = (db) => {
       CREATE TABLE IF NOT EXISTS TipoFestivo (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT NOT NULL,
-        isHoras INTEGER NOT NULL DEFAULT 0,
-        horas INTEGER DEFAULT NULL
+        isHoras INTEGER NOT NULL DEFAULT 0
       )
     `);
 
@@ -226,18 +225,15 @@ const registerTipoFestivoRoutes = (app, db) => {
 
   // Create a new holiday type
   app.post('/api/calendario/tipos', (req, res) => {
-    const { nombre, isHoras, horas } = req.body;
+    const { nombre, isHoras } = req.body;
 
     if (!nombre) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // If isHoras is true and horas is provided, use it; otherwise, set to null
-    const horasValue = isHoras && horas ? horas : null;
+    const sql = 'INSERT INTO TipoFestivo (nombre, isHoras) VALUES (?, ?)';
 
-    const sql = 'INSERT INTO TipoFestivo (nombre, isHoras, horas) VALUES (?, ?, ?)';
-
-    db.run(sql, [nombre, isHoras ? 1 : 0, horasValue], function(err) {
+    db.run(sql, [nombre, isHoras ? 1 : 0], function(err) {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
@@ -254,18 +250,15 @@ const registerTipoFestivoRoutes = (app, db) => {
   // Update a holiday type
   app.put('/api/calendario/tipos/:id', (req, res) => {
     const { id } = req.params;
-    const { nombre, isHoras, horas } = req.body;
+    const { nombre, isHoras } = req.body;
 
     if (!nombre) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // If isHoras is true and horas is provided, use it; otherwise, set to null
-    const horasValue = isHoras && horas ? horas : null;
+    const sql = 'UPDATE TipoFestivo SET nombre = ?, isHoras = ? WHERE id = ?';
 
-    const sql = 'UPDATE TipoFestivo SET nombre = ?, isHoras = ?, horas = ? WHERE id = ?';
-
-    db.run(sql, [nombre, isHoras ? 1 : 0, horasValue, id], function(err) {
+    db.run(sql, [nombre, isHoras ? 1 : 0, id], function(err) {
       if (err) {
         return res.status(500).json({ error: err.message });
       }

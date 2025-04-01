@@ -11,8 +11,7 @@ function TipoFestivoScreen({ onBack }) {
   const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
     nombre: '',
-    isHoras: false,
-    horas: ''
+    isHoras: false
   });
   const [editingId, setEditingId] = useState(null);
 
@@ -60,8 +59,7 @@ function TipoFestivoScreen({ onBack }) {
       // Reset form and refresh holiday types
       setFormData({
         nombre: '',
-        isHoras: false,
-        horas: ''
+        isHoras: false
       });
       setEditingId(null);
       fetchTiposFestivo();
@@ -75,8 +73,7 @@ function TipoFestivoScreen({ onBack }) {
   const handleEdit = (tipoFestivo) => {
     setFormData({
       nombre: tipoFestivo.nombre,
-      isHoras: Boolean(tipoFestivo.isHoras),
-      horas: tipoFestivo.horas || ''
+      isHoras: tipoFestivo.isHoras === 1 || tipoFestivo.isHoras === "1"
     });
     setEditingId(tipoFestivo.id);
   };
@@ -98,8 +95,7 @@ function TipoFestivoScreen({ onBack }) {
   const handleCancel = () => {
     setFormData({
       nombre: '',
-      isHoras: false,
-      horas: ''
+      isHoras: false
     });
     setEditingId(null);
   };
@@ -147,21 +143,6 @@ function TipoFestivoScreen({ onBack }) {
           </label>
         </div>
 
-        {formData.isHoras && (
-          <div className="form-group">
-            <label htmlFor="horas">Number of Hours:</label>
-            <input
-              type="number"
-              id="horas"
-              name="horas"
-              value={formData.horas}
-              onChange={handleInputChange}
-              min="1"
-              max="24"
-              required={formData.isHoras}
-            />
-          </div>
-        )}
 
         <div className="form-buttons">
           <button type="submit" className="submit-button">
@@ -195,10 +176,10 @@ function TipoFestivoScreen({ onBack }) {
                   <td>{tipo.id}</td>
                   <td>{tipo.nombre}</td>
                   <td>
-                    {tipo.isHoras ? (
+                    {tipo.isHoras === 1 || tipo.isHoras === "1" ? (
                       <span>
                         <span className="status-indicator partial"></span>
-                        Hours-Based {tipo.horas && `(${tipo.horas} hours)`}
+                        Hours-Based
                       </span>
                     ) : (
                       <span>
