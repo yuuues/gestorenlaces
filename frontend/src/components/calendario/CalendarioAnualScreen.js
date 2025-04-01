@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api';
 import './CalendarioScreens.css';
+import { isVerified } from '../../utils/auth';
 
 /**
  * Screen for managing annual calendar configuration
@@ -17,6 +18,12 @@ function CalendarioAnualScreen({ onBack }) {
   });
   const [editingId, setEditingId] = useState(null);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [userVerified, setUserVerified] = useState(false);
+
+  // Check if user is verified on component mount
+  useEffect(() => {
+    setUserVerified(isVerified());
+  }, []);
 
   // Fetch calendar configuration and holiday types on component mount
   useEffect(() => {
@@ -198,66 +205,73 @@ function CalendarioAnualScreen({ onBack }) {
         </select>
       </div>
 
-      <form className="form" onSubmit={handleSubmit}>
-        <h3>{editingId ? 'Edit Calendar Configuration' : 'Add New Calendar Configuration'}</h3>
+      {userVerified ? (
+        <form className="form" onSubmit={handleSubmit}>
+          <h3>{editingId ? 'Edit Calendar Configuration' : 'Add New Calendar Configuration'}</h3>
 
-        <div className="form-group">
-          <label htmlFor="tipoFestivo">Holiday Type:</label>
-          <select
-            id="tipoFestivo"
-            name="tipoFestivo"
-            value={formData.tipoFestivo}
-            onChange={handleInputChange}
-            required
-          >
-            <option value="">Select a holiday type</option>
-            {tiposFestivo.map(tipo => (
-              <option key={tipo.id} value={tipo.id}>
-                {tipo.nombre} ({tipo.isHoras === 1 || tipo.isHoras === "1" ? 'Hours-Based' : 'Full Day'})
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="form-group">
+            <label htmlFor="tipoFestivo">Holiday Type:</label>
+            <select
+              id="tipoFestivo"
+              name="tipoFestivo"
+              value={formData.tipoFestivo}
+              onChange={handleInputChange}
+              required
+            >
+              <option value="">Select a holiday type</option>
+              {tiposFestivo.map(tipo => (
+                <option key={tipo.id} value={tipo.id}>
+                  {tipo.nombre} ({tipo.isHoras === 1 || tipo.isHoras === "1" ? 'Hours-Based' : 'Full Day'})
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="cantidad">Quantity (days/hours per year):</label>
-          <input
-            type="number"
-            id="cantidad"
-            name="cantidad"
-            value={formData.cantidad}
-            onChange={handleInputChange}
-            min="1"
-            required
-          />
-        </div>
+          <div className="form-group">
+            <label htmlFor="cantidad">Quantity (days/hours per year):</label>
+            <input
+              type="number"
+              id="cantidad"
+              name="cantidad"
+              value={formData.cantidad}
+              onChange={handleInputChange}
+              min="1"
+              required
+            />
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="ano">Year:</label>
-          <select
-            id="ano"
-            name="ano"
-            value={formData.ano}
-            onChange={handleInputChange}
-            required
-          >
-            {generateYearOptions().map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
-        </div>
+          <div className="form-group">
+            <label htmlFor="ano">Year:</label>
+            <select
+              id="ano"
+              name="ano"
+              value={formData.ano}
+              onChange={handleInputChange}
+              required
+            >
+              {generateYearOptions().map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
 
-        <div className="form-buttons">
-          <button type="submit" className="submit-button">
-            {editingId ? 'Update' : 'Add'}
-          </button>
-          {editingId && (
-            <button type="button" className="cancel-button" onClick={handleCancel}>
-              Cancel
+          <div className="form-buttons">
+            <button type="submit" className="submit-button">
+              {editingId ? 'Update' : 'Add'}
             </button>
-          )}
+            {editingId && (
+              <button type="button" className="cancel-button" onClick={handleCancel}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      ) : (
+        <div className="verification-message">
+          <p>You need to be verified to add or edit calendar configurations.</p>
+          <p>Please enter the module password in the navigation panel.</p>
         </div>
-      </form>
+      )}
 
       <div className="table-container">
         <h3>Calendar Configuration for {selectedYear}</h3>
@@ -285,18 +299,24 @@ function CalendarioAnualScreen({ onBack }) {
                   <td>{config.cantidad}</td>
                   <td>{config.ano}</td>
                   <td>
-                    <button 
-                      className="edit-button" 
-                      onClick={() => handleEdit(config)}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      className="delete-button" 
-                      onClick={() => handleDelete(config.id)}
-                    >
-                      Delete
-                    </button>
+                    {userVerified ? (
+                      <>
+                        <button 
+                          className="edit-button" 
+                          onClick={() => handleEdit(config)}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          className="delete-button" 
+                          onClick={() => handleDelete(config.id)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <span className="action-disabled">Actions disabled</span>
+                    )}
                   </td>
                 </tr>
               ))}

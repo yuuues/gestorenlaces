@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import api from '../../api';
 import './CalendarioScreens.css';
+import { isVerified } from '../../utils/auth';
 
 /**
  * Screen for managing employee holidays
@@ -19,24 +21,24 @@ function FestivosScreen({ onBack }) {
     imputacion_ano: new Date().getFullYear()
   });
   const [editingId, setEditingId] = useState(null);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedEmployee, setSelectedEmployee] = useState('');
+  const [userVerified, setUserVerified] = useState(false);
+
+  // Check if user is verified on component mount
+  useEffect(() => {
+    setUserVerified(isVerified());
+  }, []);
 
   // Fetch data on component mount
   useEffect(() => {
     fetchEmployees();
     fetchTiposFestivo();
-  }, []);
-
-  // Fetch festivos when filters change
-  useEffect(() => {
     fetchFestivos();
-  }, [selectedYear, selectedEmployee]);
+  }, []);
 
   // Fetch employees from the API
   const fetchEmployees = async () => {
     try {
-      const response = await axios.get('/api/calendario/empleados');
+      const response = await api.get('/api/calendario/empleados');
       setEmployees(response.data);
 
       // Set default employee if available
@@ -45,7 +47,6 @@ function FestivosScreen({ onBack }) {
           ...prev,
           username: response.data[0].username
         }));
-        setSelectedEmployee(response.data[0].username);
       }
     } catch (err) {
       console.error('Error fetching employees:', err);
@@ -56,11 +57,7 @@ function FestivosScreen({ onBack }) {
   // Fetch holiday types from the API
   const fetchTiposFestivo = async () => {
     try {
-      const response = await axios.get('/api/calendario/tipos', {
-        headers: {
-          'module-config-password': 'GAS'
-        }
-      });
+      const response = await api.get('/api/calendario/tipos');
       setTiposFestivo(response.data);
 
       // Set default tipo if available
@@ -80,12 +77,7 @@ function FestivosScreen({ onBack }) {
   const fetchFestivos = async () => {
     setLoading(true);
     try {
-      let url = `/api/calendario/festivos?ano=${selectedYear}`;
-      if (selectedEmployee) {
-        url += `&username=${selectedEmployee}`;
-      }
-
-      const response = await axios.get(url);
+      const response = await api.get('/api/calendario/festivos');
       setFestivos(response.data);
       setLoading(false);
     } catch (err) {
@@ -104,19 +96,6 @@ function FestivosScreen({ onBack }) {
     });
   };
 
-  // Handle year selector change
-  const handleYearChange = (e) => {
-    setSelectedYear(parseInt(e.target.value));
-    setFormData(prev => ({
-      ...prev,
-      imputacion_ano: parseInt(e.target.value)
-    }));
-  };
-
-  // Handle employee selector change
-  const handleEmployeeChange = (e) => {
-    setSelectedEmployee(e.target.value);
-  };
 
   // Handle form submission
   const handleSubmit = async (e) => {
@@ -125,7 +104,7 @@ function FestivosScreen({ onBack }) {
     try {
       if (editingId) {
         // Update existing holiday
-        await axios.put(`/api/calendario/festivos/${editingId}`, {
+        await api.put(`/api/calendario/festivos/${editingId}`, {
           fecha: formData.fecha,
           fecha_fin: formData.fecha_fin || null,
           tipo: parseInt(formData.tipo),
@@ -134,7 +113,7 @@ function FestivosScreen({ onBack }) {
         });
       } else {
         // Create new holiday
-        await axios.post('/api/calendario/festivos', {
+        await api.post('/api/calendario/festivos', {
           username: formData.username,
           fecha: formData.fecha,
           fecha_fin: formData.fecha_fin || null,
@@ -145,11 +124,11 @@ function FestivosScreen({ onBack }) {
 
       // Reset form and refresh holidays
       setFormData({
-        username: selectedEmployee,
+        username: employees.length > 0 ? employees[0].username : '',
         fecha: new Date().toISOString().split('T')[0],
         fecha_fin: '',
         tipo: tiposFestivo.length > 0 ? tiposFestivo[0].id : '',
-        imputacion_ano: selectedYear
+        imputacion_ano: new Date().getFullYear()
       });
       setEditingId(null);
       fetchFestivos();
@@ -179,7 +158,7 @@ function FestivosScreen({ onBack }) {
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this holiday?')) {
       try {
-        await axios.delete(`/api/calendario/festivos/${id}`);
+        await api.delete(`/api/calendario/festivos/${id}`);
         fetchFestivos();
       } catch (err) {
         console.error('Error deleting holiday:', err);
@@ -191,11 +170,11 @@ function FestivosScreen({ onBack }) {
   // Handle cancel button click
   const handleCancel = () => {
     setFormData({
-      username: selectedEmployee,
+      username: employees.length > 0 ? employees[0].username : '',
       fecha: new Date().toISOString().split('T')[0],
       fecha_fin: '',
       tipo: tiposFestivo.length > 0 ? tiposFestivo[0].id : '',
-      imputacion_ano: selectedYear
+      imputacion_ano: new Date().getFullYear()
     });
     setEditingId(null);
   };
@@ -238,133 +217,110 @@ function FestivosScreen({ onBack }) {
 
       {error && <div className="error-message">{error}</div>}
 
-      <div className="filters-container">
-        <div className="filter-group">
-          <label htmlFor="employee-selector">Employee:</label>
-          <select 
-            id="employee-selector" 
-            value={selectedEmployee}
-            onChange={handleEmployeeChange}
-          >
-            <option value="">All Employees</option>
-            {employees.map(employee => (
-              <option key={employee.username} value={employee.username}>
-                {employee.username}
-              </option>
-            ))}
-          </select>
-        </div>
 
-        <div className="filter-group">
-          <label htmlFor="year-selector">Year:</label>
-          <select 
-            id="year-selector" 
-            value={selectedYear}
-            onChange={handleYearChange}
-          >
-            {generateYearOptions().map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {userVerified ? (
+        <form className="form" onSubmit={handleSubmit}>
+          <h3>{editingId ? 'Edit Holiday' : 'Add New Holiday'}</h3>
 
-      <form className="form" onSubmit={handleSubmit}>
-        <h3>{editingId ? 'Edit Holiday' : 'Add New Holiday'}</h3>
+          <div className="form-group">
+            <label htmlFor="username">Employee:</label>
+            <select
+              id="username"
+              name="username"
+              value={formData.username}
+              onChange={handleInputChange}
+              required
+              disabled={editingId}
+            >
+              <option value="">Select an employee</option>
+              {employees.map(employee => (
+                <option key={employee.username} value={employee.username}>
+                  {employee.username}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="username">Employee:</label>
-          <select
-            id="username"
-            name="username"
-            value={formData.username}
-            onChange={handleInputChange}
-            required
-            disabled={editingId}
-          >
-            <option value="">Select an employee</option>
-            {employees.map(employee => (
-              <option key={employee.username} value={employee.username}>
-                {employee.username}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="form-group">
+            <label htmlFor="fecha">Start Date:</label>
+            <input
+              type="date"
+              id="fecha"
+              name="fecha"
+              value={formData.fecha}
+              onChange={handleInputChange}
+              required
+            />
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="fecha">Start Date:</label>
-          <input
-            type="date"
-            id="fecha"
-            name="fecha"
-            value={formData.fecha}
-            onChange={handleInputChange}
-            required
-          />
-        </div>
+          <div className="form-group">
+            <label htmlFor="fecha_fin">End Date (optional):</label>
+            <input
+              type="date"
+              id="fecha_fin"
+              name="fecha_fin"
+              value={formData.fecha_fin}
+              onChange={handleInputChange}
+              min={formData.fecha}
+            />
+            <small>Leave empty for single day</small>
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="fecha_fin">End Date (optional):</label>
-          <input
-            type="date"
-            id="fecha_fin"
-            name="fecha_fin"
-            value={formData.fecha_fin}
-            onChange={handleInputChange}
-            min={formData.fecha}
-          />
-          <small>Leave empty for single day</small>
-        </div>
+          <div className="form-group">
+            <label htmlFor="tipo">Holiday Type:</label>
+            <select
+              id="tipo"
+              name="tipo"
+              value={formData.tipo}
+              onChange={handleInputChange}
+              required
+            >
+              <option value="">Select a holiday type</option>
+              {tiposFestivo.map(tipo => (
+                <option key={tipo.id} value={tipo.id}>
+                  {tipo.nombre} ({tipo.isHoras === 1 || tipo.isHoras === "1" ? 'Hours-Based' : 'Full Day'})
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="tipo">Holiday Type:</label>
-          <select
-            id="tipo"
-            name="tipo"
-            value={formData.tipo}
-            onChange={handleInputChange}
-            required
-          >
-            <option value="">Select a holiday type</option>
-            {tiposFestivo.map(tipo => (
-              <option key={tipo.id} value={tipo.id}>
-                {tipo.nombre} ({tipo.isHoras === 1 || tipo.isHoras === "1" ? 'Hours-Based' : 'Full Day'})
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="form-group">
+            <label htmlFor="imputacion_ano">Year:</label>
+            <select
+              id="imputacion_ano"
+              name="imputacion_ano"
+              value={formData.imputacion_ano}
+              onChange={handleInputChange}
+              required
+            >
+              {generateYearOptions().map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
 
-        <div className="form-group">
-          <label htmlFor="imputacion_ano">Year:</label>
-          <select
-            id="imputacion_ano"
-            name="imputacion_ano"
-            value={formData.imputacion_ano}
-            onChange={handleInputChange}
-            required
-          >
-            {generateYearOptions().map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-buttons">
-          <button type="submit" className="submit-button">
-            {editingId ? 'Update' : 'Add'}
-          </button>
-          {editingId && (
-            <button type="button" className="cancel-button" onClick={handleCancel}>
-              Cancel
+          <div className="form-buttons">
+            <button type="submit" className="submit-button">
+              {editingId ? 'Update' : 'Add'}
             </button>
-          )}
+            {editingId && (
+              <button type="button" className="cancel-button" onClick={handleCancel}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      ) : (
+        <div className="verification-message">
+          <p>You need to be verified to add or edit holidays.</p>
+          <p>Please enter the module password in the navigation panel.</p>
         </div>
-      </form>
+      )}
 
       <div className="table-container">
-        <h3>Holidays {selectedEmployee ? `for ${selectedEmployee}` : ''} in {selectedYear}</h3>
+        <h3>Holidays</h3>
         {festivos.length === 0 ? (
-          <p>No holidays found for the selected filters.</p>
+          <p>No holidays found.</p>
         ) : (
           <table className="data-table">
             <thead>
@@ -405,18 +361,24 @@ function FestivosScreen({ onBack }) {
                   </td>
                   <td>{festivo.imputacion_ano}</td>
                   <td>
-                    <button 
-                      className="edit-button" 
-                      onClick={() => handleEdit(festivo)}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      className="delete-button" 
-                      onClick={() => handleDelete(festivo.id)}
-                    >
-                      Delete
-                    </button>
+                    {userVerified ? (
+                      <>
+                        <button 
+                          className="edit-button" 
+                          onClick={() => handleEdit(festivo)}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          className="delete-button" 
+                          onClick={() => handleDelete(festivo.id)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <span className="action-disabled">Actions disabled</span>
+                    )}
                   </td>
                 </tr>
               ))}

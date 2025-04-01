@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api';
 import './CalendarioScreens.css';
+import { isVerified } from '../../utils/auth';
 
 /**
  * Screen for managing holiday types
@@ -14,6 +15,12 @@ function TipoFestivoScreen({ onBack }) {
     isHoras: false
   });
   const [editingId, setEditingId] = useState(null);
+  const [userVerified, setUserVerified] = useState(false);
+
+  // Check if user is verified on component mount
+  useEffect(() => {
+    setUserVerified(isVerified());
+  }, []);
 
   // Fetch holiday types on component mount
   useEffect(() => {
@@ -116,45 +123,52 @@ function TipoFestivoScreen({ onBack }) {
 
       {error && <div className="error-message">{error}</div>}
 
-      <form className="form" onSubmit={handleSubmit}>
-        <h3>{editingId ? 'Edit Holiday Type' : 'Add New Holiday Type'}</h3>
+      {userVerified ? (
+        <form className="form" onSubmit={handleSubmit}>
+          <h3>{editingId ? 'Edit Holiday Type' : 'Add New Holiday Type'}</h3>
 
-        <div className="form-group">
-          <label htmlFor="nombre">Name:</label>
-          <input
-            type="text"
-            id="nombre"
-            name="nombre"
-            value={formData.nombre}
-            onChange={handleInputChange}
-            required
-          />
-        </div>
-
-        <div className="form-group">
-          <label>
+          <div className="form-group">
+            <label htmlFor="nombre">Name:</label>
             <input
-              type="checkbox"
-              name="isHoras"
-              checked={formData.isHoras}
+              type="text"
+              id="nombre"
+              name="nombre"
+              value={formData.nombre}
               onChange={handleInputChange}
+              required
             />
-            Is Hours-Based (partial day off)
-          </label>
-        </div>
+          </div>
+
+          <div className="form-group">
+            <label>
+              <input
+                type="checkbox"
+                name="isHoras"
+                checked={formData.isHoras}
+                onChange={handleInputChange}
+              />
+              Is Hours-Based (partial day off)
+            </label>
+          </div>
 
 
-        <div className="form-buttons">
-          <button type="submit" className="submit-button">
-            {editingId ? 'Update' : 'Add'}
-          </button>
-          {editingId && (
-            <button type="button" className="cancel-button" onClick={handleCancel}>
-              Cancel
+          <div className="form-buttons">
+            <button type="submit" className="submit-button">
+              {editingId ? 'Update' : 'Add'}
             </button>
-          )}
+            {editingId && (
+              <button type="button" className="cancel-button" onClick={handleCancel}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      ) : (
+        <div className="verification-message">
+          <p>You need to be verified to add or edit holiday types.</p>
+          <p>Please enter the module password in the navigation panel.</p>
         </div>
-      </form>
+      )}
 
       <div className="table-container">
         <h3>Holiday Types</h3>
@@ -189,18 +203,24 @@ function TipoFestivoScreen({ onBack }) {
                     )}
                   </td>
                   <td>
-                    <button 
-                      className="edit-button" 
-                      onClick={() => handleEdit(tipo)}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      className="delete-button" 
-                      onClick={() => handleDelete(tipo.id)}
-                    >
-                      Delete
-                    </button>
+                    {userVerified ? (
+                      <>
+                        <button 
+                          className="edit-button" 
+                          onClick={() => handleEdit(tipo)}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          className="delete-button" 
+                          onClick={() => handleDelete(tipo.id)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <span className="action-disabled">Actions disabled</span>
+                    )}
                   </td>
                 </tr>
               ))}

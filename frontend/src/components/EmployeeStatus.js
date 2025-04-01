@@ -54,7 +54,7 @@ function EmployeeStatus() {
             className={`employee-status-box employee-status-${employee.status}`}
             title={`${employee.username} - ${getStatusText(employee.status)}`}
           >
-            {employee.username.charAt(0).toUpperCase()}
+            {employee.username.substring(0, 2).toUpperCase()}
           </div>
         ))}
       </div>

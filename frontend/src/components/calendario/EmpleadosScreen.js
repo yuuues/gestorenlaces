@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import api from '../../api';
 import './CalendarioScreens.css';
+import { isVerified } from '../../utils/auth';
 
 /**
  * Screen for managing employees
@@ -15,6 +17,12 @@ function EmpleadosScreen({ onBack }) {
     fecha_fin: ''
   });
   const [editingId, setEditingId] = useState(null);
+  const [userVerified, setUserVerified] = useState(false);
+
+  // Check if user is verified on component mount
+  useEffect(() => {
+    setUserVerified(isVerified());
+  }, []);
 
   // Fetch employees on component mount
   useEffect(() => {
@@ -25,7 +33,7 @@ function EmpleadosScreen({ onBack }) {
   const fetchEmployees = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('/api/calendario/empleados');
+      const response = await api.get('/api/calendario/empleados');
       setEmployees(response.data);
       setLoading(false);
     } catch (err) {
@@ -47,16 +55,16 @@ function EmpleadosScreen({ onBack }) {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       if (editingId) {
         // Update existing employee
-        await axios.put(`/api/calendario/empleados/${editingId}`, formData);
+        await api.put(`/api/calendario/empleados/${editingId}`, formData);
       } else {
         // Create new employee
-        await axios.post('/api/calendario/empleados', formData);
+        await api.post('/api/calendario/empleados', formData);
       }
-      
+
       // Reset form and refresh employees
       setFormData({
         username: '',
@@ -85,7 +93,7 @@ function EmpleadosScreen({ onBack }) {
   const handleDelete = async (username) => {
     if (window.confirm(`Are you sure you want to delete employee ${username}?`)) {
       try {
-        await axios.delete(`/api/calendario/empleados/${username}`);
+        await api.delete(`/api/calendario/empleados/${username}`);
         fetchEmployees();
       } catch (err) {
         console.error('Error deleting employee:', err);
@@ -117,60 +125,67 @@ function EmpleadosScreen({ onBack }) {
   return (
     <div className="calendario-screen">
       <h2>Employee Management</h2>
-      
+
       {error && <div className="error-message">{error}</div>}
-      
-      <form className="form" onSubmit={handleSubmit}>
-        <h3>{editingId ? 'Edit Employee' : 'Add New Employee'}</h3>
-        
-        <div className="form-group">
-          <label htmlFor="username">Username:</label>
-          <input
-            type="text"
-            id="username"
-            name="username"
-            value={formData.username}
-            onChange={handleInputChange}
-            required
-            disabled={editingId}
-          />
-        </div>
-        
-        <div className="form-group">
-          <label htmlFor="fecha_inicio">Start Date:</label>
-          <input
-            type="date"
-            id="fecha_inicio"
-            name="fecha_inicio"
-            value={formData.fecha_inicio}
-            onChange={handleInputChange}
-            required
-          />
-        </div>
-        
-        <div className="form-group">
-          <label htmlFor="fecha_fin">End Date (optional):</label>
-          <input
-            type="date"
-            id="fecha_fin"
-            name="fecha_fin"
-            value={formData.fecha_fin}
-            onChange={handleInputChange}
-          />
-        </div>
-        
-        <div className="form-buttons">
-          <button type="submit" className="submit-button">
-            {editingId ? 'Update' : 'Add'}
-          </button>
-          {editingId && (
-            <button type="button" className="cancel-button" onClick={handleCancel}>
-              Cancel
+
+      {userVerified ? (
+        <form className="form" onSubmit={handleSubmit}>
+          <h3>{editingId ? 'Edit Employee' : 'Add New Employee'}</h3>
+
+          <div className="form-group">
+            <label htmlFor="username">Username:</label>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              value={formData.username}
+              onChange={handleInputChange}
+              required
+              disabled={editingId}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="fecha_inicio">Start Date:</label>
+            <input
+              type="date"
+              id="fecha_inicio"
+              name="fecha_inicio"
+              value={formData.fecha_inicio}
+              onChange={handleInputChange}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="fecha_fin">End Date (optional):</label>
+            <input
+              type="date"
+              id="fecha_fin"
+              name="fecha_fin"
+              value={formData.fecha_fin}
+              onChange={handleInputChange}
+            />
+          </div>
+
+          <div className="form-buttons">
+            <button type="submit" className="submit-button">
+              {editingId ? 'Update' : 'Add'}
             </button>
-          )}
+            {editingId && (
+              <button type="button" className="cancel-button" onClick={handleCancel}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      ) : (
+        <div className="verification-message">
+          <p>You need to be verified to add or edit employees.</p>
+          <p>Please enter the module password in the navigation panel.</p>
         </div>
-      </form>
-      
+      )}
+
       <div className="table-container">
         <h3>Employees</h3>
         {employees.length === 0 ? (
@@ -196,18 +211,24 @@ function EmpleadosScreen({ onBack }) {
                       : 'N/A'}
                   </td>
                   <td>
-                    <button 
-                      className="edit-button" 
-                      onClick={() => handleEdit(employee)}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      className="delete-button" 
-                      onClick={() => handleDelete(employee.username)}
-                    >
-                      Delete
-                    </button>
+                    {userVerified ? (
+                      <>
+                        <button 
+                          className="edit-button" 
+                          onClick={() => handleEdit(employee)}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          className="delete-button" 
+                          onClick={() => handleDelete(employee.username)}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : (
+                      <span className="action-disabled">Actions disabled</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -215,7 +236,7 @@ function EmpleadosScreen({ onBack }) {
           </table>
         )}
       </div>
-      
+
       <button className="back-button" onClick={onBack}>Back to Home</button>
     </div>
   );
