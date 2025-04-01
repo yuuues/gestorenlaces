@@ -1,0 +1,56 @@
+[
+  {
+    "category": "Development",
+    "short_description": "GitHub",
+    "long_description": "Web-based platform for version control and collaboration",
+    "link": "https://github.com/"
+  },
+  {
+    "category": "Development",
+    "short_description": "Stack Overflow",
+    "long_description": "Question and answer site for professional and enthusiast programmers",
+    "link": "https://stackoverflow.com/"
+  },
+  {
+    "category": "Development",
+    "short_description": "MDN Web Docs",
+    "long_description": "Resources for developers, by developers",
+    "link": "https://developer.mozilla.org/"
+  },
+  {
+    "category": "News",
+    "short_description": "BBC News",
+    "long_description": "Breaking news, sport, TV, radio and a whole lot more",
+    "link": "https://www.bbc.com/news"
+  },
+  {
+    "category": "News",
+    "short_description": "CNN",
+    "long_description": "Breaking news, latest news and videos",
+    "link": "https://www.cnn.com/"
+  },
+  {
+    "category": "Entertainment",
+    "short_description": "Netflix",
+    "long_description": "Watch TV shows and movies online",
+    "link": "https://www.netflix.com/"
+  },
+  {
+    "category": "Entertainment",
+    "short_description": "YouTube",
+    "long_description": "Enjoy the videos and music you love",
+    "link": "https://www.youtube.com/"
+  },
+  {
+    "category": "Social",
+    "short_description": "Twitter",
+    "long_description": "See what's happening in the world right now",
+    "link": "https://twitter.com/"
+  },
+  {
+    "category": "Social",
+    "short_description": "Facebook",
+    "long_description": "Connect with friends, family and other people you know",
+    "link": "https://www.facebook.com/"
+  }
+]
