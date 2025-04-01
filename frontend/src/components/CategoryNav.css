@@ -39,6 +39,84 @@
   color: white;
 }
 
+/* Module links styles */
+.module-links {
+  margin-bottom: 20px;
+}
+
+/* Module password form styles */
+.module-password-form {
+  margin: 10px 0 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.module-password-input {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+  width: 100%;
+}
+
+.module-password-button {
+  padding: 8px 12px;
+  background-color: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.module-password-button:hover {
+  background-color: #004080;
+}
+
+.module-password-button:disabled {
+  background-color: #99bbdd;
+  cursor: not-allowed;
+}
+
+.module-password-error {
+  color: #d32f2f;
+  font-size: 14px;
+  margin: 5px 0 10px;
+}
+
+.module-password-success {
+  color: #388e3c;
+  font-size: 14px;
+  margin: 5px 0 10px;
+}
+
+.lock-icon {
+  margin-left: 5px;
+  font-size: 12px;
+}
+
+.module-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.module-list li {
+  padding: 10px 15px;
+  margin: 5px 0;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  background-color: #e8f0f8;
+  color: #0066cc;
+}
+
+.module-list li:hover {
+  background-color: #d0e0f0;
+}
+
 .category-footer {
   margin-top: 20px;
   padding-top: 15px;

@@ -5,6 +5,26 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
+// Module system
+const loadedModules = [];
+
+// Middleware to check for module configuration password
+const checkModuleConfigPassword = (req, res, next) => {
+  const providedPassword = req.headers['module-config-password'];
+  const correctPassword = process.env.MODULE_CONFIG_PASSWORD;
+
+  if (!correctPassword) {
+    return res.status(500).json({ error: 'Module configuration password not set in environment variables' });
+  }
+
+  if (!providedPassword || providedPassword !== correctPassword) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid module configuration password' });
+  }
+
+  next();
+};
 
 // Check if frontend build exists, if not build it
 const frontendBuildPath = path.join(__dirname, '..', 'frontend', 'build');
@@ -92,6 +112,91 @@ const initDbFromJson = () => {
 
 // Initialize database
 initDbFromJson();
+
+// Load modules
+const loadModules = () => {
+  const modulesPath = path.join(__dirname, 'modules');
+
+  // Check if modules directory exists
+  if (!fs.existsSync(modulesPath)) {
+    console.log('Modules directory not found. No modules will be loaded.');
+    return;
+  }
+
+  // Get all directories in the modules folder
+  const moduleDirs = fs.readdirSync(modulesPath, { withFileTypes: true })
+    .filter(dirent => dirent.isDirectory())
+    .map(dirent => dirent.name);
+
+  // Apply password protection to module configuration routes
+  app.use('/api/*/configuracion', checkModuleConfigPassword);
+  app.use('/api/*/tipos', checkModuleConfigPassword);
+  app.use('/api/modules/config', checkModuleConfigPassword);
+
+  // Load each module
+  moduleDirs.forEach(moduleName => {
+    const modulePath = path.join(modulesPath, moduleName);
+    const moduleIndexPath = path.join(modulePath, 'index.js');
+
+    // Check if module has an index.js file
+    if (fs.existsSync(moduleIndexPath)) {
+      try {
+        const moduleExports = require(moduleIndexPath);
+
+        // Check if module has the required interface
+        if (typeof moduleExports.initialize === 'function') {
+          // Initialize the module with the app and db instances
+          moduleExports.initialize(app, db);
+
+          // Store the loaded module
+          loadedModules.push({
+            name: moduleName,
+            exports: moduleExports
+          });
+
+          console.log(`Module '${moduleName}' loaded successfully.`);
+        } else {
+          console.error(`Module '${moduleName}' does not have the required interface.`);
+        }
+      } catch (error) {
+        console.error(`Error loading module '${moduleName}':`, error);
+      }
+    } else {
+      console.log(`Module '${moduleName}' does not have an index.js file.`);
+    }
+  });
+
+  console.log(`Loaded ${loadedModules.length} modules.`);
+};
+
+// Load modules
+loadModules();
+
+// API endpoint to get loaded modules
+app.get('/api/modules', (req, res) => {
+  const moduleInfo = loadedModules.map(module => ({
+    name: module.name,
+    routes: module.exports.routes || []
+  }));
+
+  res.json(moduleInfo);
+});
+
+// API endpoint to validate module configuration password
+app.post('/api/modules/validate-password', (req, res) => {
+  const providedPassword = req.headers['module-config-password'];
+  const correctPassword = process.env.MODULE_CONFIG_PASSWORD;
+
+  if (!correctPassword) {
+    return res.status(500).json({ error: 'Module configuration password not set in environment variables' });
+  }
+
+  if (!providedPassword || providedPassword !== correctPassword) {
+    return res.status(401).json({ error: 'Invalid password', valid: false });
+  }
+
+  res.json({ message: 'Password is valid', valid: true });
+});
 
 // API Routes
 
