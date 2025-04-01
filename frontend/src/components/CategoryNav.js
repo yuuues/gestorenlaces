@@ -27,6 +27,9 @@ function CategoryNav({ categories, selectedCategory, onSelectCategory }) {
           </li>
         ))}
       </ul>
+      <div className="category-footer">
+        <p><a href="https://yuuu.es" target="_blank" rel="noopener noreferrer">Powered & Developed by Yuuu</a></p>
+      </div>
     </nav>
   );
 }

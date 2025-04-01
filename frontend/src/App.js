@@ -101,6 +101,7 @@ function App() {
               bookmarks={filteredBookmarks} 
               selectedCategory={selectedCategory}
               searchQuery={searchQuery}
+              categories={categories}
             />
           )}
         </main>

@@ -38,3 +38,24 @@
   background-color: #0066cc;
   color: white;
 }
+
+.category-footer {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid #ddd;
+  font-size: 0.9rem;
+  text-align: center;
+  position: sticky;
+  bottom: 20px;
+}
+
+.category-footer a {
+  color: #0066cc;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.category-footer a:hover {
+  color: #004080;
+  text-decoration: underline;
+}

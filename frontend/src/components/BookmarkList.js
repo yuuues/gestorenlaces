@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import './BookmarkList.css';
 
-function BookmarkList({ bookmarks, selectedCategory, searchQuery }) {
+function BookmarkList({ bookmarks, selectedCategory, searchQuery, categories }) {
   // Group bookmarks by category
   const bookmarksByCategory = useMemo(() => {
     const grouped = {};
@@ -16,8 +16,8 @@ function BookmarkList({ bookmarks, selectedCategory, searchQuery }) {
     return grouped;
   }, [bookmarks]);
 
-  // Get categories from grouped bookmarks
-  const categories = Object.keys(bookmarksByCategory).sort();
+  // Filter the categories to only include those that have bookmarks
+  const displayCategories = categories.filter(category => bookmarksByCategory[category]);
 
   if (bookmarks.length === 0) {
     return searchQuery ? 
@@ -27,7 +27,7 @@ function BookmarkList({ bookmarks, selectedCategory, searchQuery }) {
 
   return (
     <div className="bookmark-list">
-      {categories.map(categoryName => (
+      {displayCategories.map(categoryName => (
         <div key={categoryName} id={`category-${categoryName}`} className="category-section">
           <h2>{categoryName}</h2>
           <div className="bookmarks">
