@@ -41,7 +41,8 @@ db.serialize(() => {
       category TEXT NOT NULL,
       short_description TEXT NOT NULL,
       long_description TEXT,
-      link TEXT NOT NULL
+      link TEXT NOT NULL,
+      icon TEXT
     )
   `);
 });
@@ -63,14 +64,15 @@ const initDbFromJson = () => {
         try {
           const bookmarksData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 
-          const stmt = db.prepare('INSERT INTO bookmarks (category, short_description, long_description, link) VALUES (?, ?, ?, ?)');
+          const stmt = db.prepare('INSERT INTO bookmarks (category, short_description, long_description, link, icon) VALUES (?, ?, ?, ?, ?)');
 
           bookmarksData.forEach(bookmark => {
             stmt.run(
               bookmark.category,
               bookmark.short_description,
               bookmark.long_description || '',
-              bookmark.link
+              bookmark.link,
+              bookmark.icon || ''
             );
           });
 
@@ -128,18 +130,18 @@ app.get('/api/categories', (req, res) => {
 
 // Create a new bookmark
 app.post('/api/bookmarks', (req, res) => {
-  const { category, short_description, long_description, link } = req.body;
+  const { category, short_description, long_description, link, icon } = req.body;
 
   if (!category || !short_description || !link) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
   const sql = `
-    INSERT INTO bookmarks (category, short_description, long_description, link)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO bookmarks (category, short_description, long_description, link, icon)
+    VALUES (?, ?, ?, ?, ?)
   `;
 
-  db.run(sql, [category, short_description, long_description || '', link], function(err) {
+  db.run(sql, [category, short_description, long_description || '', link, icon || ''], function(err) {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -156,7 +158,7 @@ app.post('/api/bookmarks', (req, res) => {
 // Update a bookmark
 app.put('/api/bookmarks/:id', (req, res) => {
   const { id } = req.params;
-  const { category, short_description, long_description, link } = req.body;
+  const { category, short_description, long_description, link, icon } = req.body;
 
   // Check if bookmark exists
   db.get('SELECT * FROM bookmarks WHERE id = ?', [id], (err, row) => {
@@ -174,6 +176,7 @@ app.put('/api/bookmarks/:id', (req, res) => {
     if (short_description !== undefined) updates.short_description = short_description;
     if (long_description !== undefined) updates.long_description = long_description;
     if (link !== undefined) updates.link = link;
+    if (icon !== undefined) updates.icon = icon;
 
     const fields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
     const values = Object.values(updates);
@@ -218,7 +221,7 @@ app.delete('/api/bookmarks/:id', (req, res) => {
 
 // Export bookmarks to JSON
 app.get('/api/export', (req, res) => {
-  db.all('SELECT category, short_description, long_description, link FROM bookmarks', (err, rows) => {
+  db.all('SELECT category, short_description, long_description, link, icon FROM bookmarks', (err, rows) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }

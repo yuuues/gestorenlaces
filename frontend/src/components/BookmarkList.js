@@ -1,5 +1,12 @@
 import React, { useMemo } from 'react';
 import './BookmarkList.css';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { library } from '@fortawesome/fontawesome-svg-core';
+import { fas } from '@fortawesome/free-solid-svg-icons';
+import { fab } from '@fortawesome/free-brands-svg-icons';
+
+// Add all icons to the library
+library.add(fas, fab);
 
 function BookmarkList({ bookmarks, selectedCategory, searchQuery, categories }) {
   // Group bookmarks by category
@@ -43,6 +50,13 @@ function BookmarkList({ bookmarks, selectedCategory, searchQuery, categories }) 
                   rel="noopener noreferrer" 
                   className="bookmark-link"
                 >
+                  {bookmark.icon && (
+                    <FontAwesomeIcon 
+                      icon={bookmark.icon.includes('-') ? bookmark.icon : ['fas', bookmark.icon]} 
+                      className="bookmark-icon" 
+                      style={{ marginRight: '8px' }}
+                    />
+                  )}
                   Visit Site
                 </a>
               </div>

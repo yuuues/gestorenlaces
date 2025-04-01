@@ -3,54 +3,63 @@
     "category": "Development",
     "short_description": "GitHub",
     "long_description": "Web-based platform for version control and collaboration",
-    "link": "https://github.com/"
+    "link": "https://github.com/",
+    "icon": "github"
   },
   {
     "category": "Development",
     "short_description": "Stack Overflow",
     "long_description": "Question and answer site for professional and enthusiast programmers",
-    "link": "https://stackoverflow.com/"
+    "link": "https://stackoverflow.com/",
+    "icon": "stack-overflow"
   },
   {
     "category": "Development",
     "short_description": "MDN Web Docs",
     "long_description": "Resources for developers, by developers",
-    "link": "https://developer.mozilla.org/"
+    "link": "https://developer.mozilla.org/",
+    "icon": "book"
   },
   {
     "category": "News",
     "short_description": "BBC News",
     "long_description": "Breaking news, sport, TV, radio and a whole lot more",
-    "link": "https://www.bbc.com/news"
+    "link": "https://www.bbc.com/news",
+    "icon": "newspaper"
   },
   {
     "category": "News",
     "short_description": "CNN",
     "long_description": "Breaking news, latest news and videos",
-    "link": "https://www.cnn.com/"
+    "link": "https://www.cnn.com/",
+    "icon": "newspaper"
   },
   {
     "category": "Entertainment",
     "short_description": "Netflix",
     "long_description": "Watch TV shows and movies online",
-    "link": "https://www.netflix.com/"
+    "link": "https://www.netflix.com/",
+    "icon": "film"
   },
   {
     "category": "Entertainment",
     "short_description": "YouTube",
     "long_description": "Enjoy the videos and music you love",
-    "link": "https://www.youtube.com/"
+    "link": "https://www.youtube.com/",
+    "icon": "youtube"
   },
   {
     "category": "Social",
     "short_description": "Twitter",
     "long_description": "See what's happening in the world right now",
-    "link": "https://twitter.com/"
+    "link": "https://twitter.com/",
+    "icon": "twitter"
   },
   {
     "category": "Social",
     "short_description": "Facebook",
     "long_description": "Connect with friends, family and other people you know",
-    "link": "https://www.facebook.com/"
+    "link": "https://www.facebook.com/",
+    "icon": "facebook"
   }
 ]
