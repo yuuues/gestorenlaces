@@ -2,6 +2,17 @@ import React from 'react';
 import './CategoryNav.css';
 
 function CategoryNav({ categories, selectedCategory, onSelectCategory }) {
+  const scrollToCategory = (category) => {
+    // Update the selected category in the parent component
+    onSelectCategory(category);
+
+    // Scroll to the category section
+    const element = document.getElementById(`category-${category}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   return (
     <nav className="category-nav">
       <h2>Categories</h2>
@@ -10,7 +21,7 @@ function CategoryNav({ categories, selectedCategory, onSelectCategory }) {
           <li 
             key={category}
             className={category === selectedCategory ? 'active' : ''}
-            onClick={() => onSelectCategory(category)}
+            onClick={() => scrollToCategory(category)}
           >
             {category}
           </li>

@@ -31,14 +31,12 @@ function App() {
     fetchCategories();
   }, []);
 
-  // Fetch bookmarks when selected category changes
+  // Fetch all bookmarks on component mount
   useEffect(() => {
-    const fetchBookmarks = async () => {
-      if (!selectedCategory) return;
-
+    const fetchAllBookmarks = async () => {
       setLoading(true);
       try {
-        const response = await axios.get(`/api/bookmarks/category/${selectedCategory}`);
+        const response = await axios.get('/api/bookmarks');
         setBookmarks(response.data);
         setLoading(false);
       } catch (err) {
@@ -48,10 +46,10 @@ function App() {
       }
     };
 
-    fetchBookmarks();
-  }, [selectedCategory]);
+    fetchAllBookmarks();
+  }, []);
 
-  // Filter bookmarks based on search query
+  // Filter bookmarks based on search query across all bookmarks
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setFilteredBookmarks(bookmarks);
@@ -59,7 +57,8 @@ function App() {
       const filtered = bookmarks.filter(bookmark => 
         bookmark.short_description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (bookmark.long_description && bookmark.long_description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        bookmark.link.toLowerCase().includes(searchQuery.toLowerCase())
+        bookmark.link.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        bookmark.category.toLowerCase().includes(searchQuery.toLowerCase())
       );
       setFilteredBookmarks(filtered);
     }
@@ -100,7 +99,7 @@ function App() {
           ) : (
             <BookmarkList 
               bookmarks={filteredBookmarks} 
-              category={selectedCategory} 
+              selectedCategory={selectedCategory}
               searchQuery={searchQuery}
             />
           )}
