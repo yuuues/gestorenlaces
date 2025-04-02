@@ -91,7 +91,7 @@ function CalendarioAnualScreen({ onBack }) {
     e.preventDefault();
 
     // Validate cantidad is a positive number
-    if (parseInt(formData.cantidad) <= 0) {
+    if (parseFloat(formData.cantidad) <= 0) {
       setError('Quantity must be a positive number');
       return;
     }
@@ -101,14 +101,14 @@ function CalendarioAnualScreen({ onBack }) {
         // Update existing calendar configuration
         await api.put(`/api/calendario/configuracion/${editingId}`, {
           tipoFestivo: parseInt(formData.tipoFestivo),
-          cantidad: parseInt(formData.cantidad),
+          cantidad: parseFloat(formData.cantidad),
           ano: parseInt(formData.ano)
         });
       } else {
         // Create new calendar configuration
         await api.post('/api/calendario/configuracion', {
           tipoFestivo: parseInt(formData.tipoFestivo),
-          cantidad: parseInt(formData.cantidad),
+          cantidad: parseFloat(formData.cantidad),
           ano: parseInt(formData.ano)
         });
       }
@@ -235,7 +235,8 @@ function CalendarioAnualScreen({ onBack }) {
               name="cantidad"
               value={formData.cantidad}
               onChange={handleInputChange}
-              min="1"
+              min="0.1"
+              step="0.1"
               required
             />
           </div>

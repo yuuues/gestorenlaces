@@ -18,7 +18,8 @@ function FestivosScreen({ onBack }) {
     fecha: new Date().toISOString().split('T')[0],
     fecha_fin: '',
     tipo: '',
-    imputacion_ano: new Date().getFullYear()
+    imputacion_ano: new Date().getFullYear(),
+    horas: ''
   });
   const [editingId, setEditingId] = useState(null);
   const [userVerified, setUserVerified] = useState(false);
@@ -109,7 +110,8 @@ function FestivosScreen({ onBack }) {
           fecha_fin: formData.fecha_fin || null,
           tipo: parseInt(formData.tipo),
           pendiente: 1,
-          imputacion_ano: parseInt(formData.imputacion_ano)
+          imputacion_ano: parseInt(formData.imputacion_ano),
+          horas: formData.horas ? parseFloat(formData.horas) : null
         });
       } else {
         // Create new holiday
@@ -118,7 +120,8 @@ function FestivosScreen({ onBack }) {
           fecha: formData.fecha,
           fecha_fin: formData.fecha_fin || null,
           tipo: parseInt(formData.tipo),
-          imputacion_ano: parseInt(formData.imputacion_ano)
+          imputacion_ano: parseInt(formData.imputacion_ano),
+          horas: formData.horas ? parseFloat(formData.horas) : null
         });
       }
 
@@ -128,7 +131,8 @@ function FestivosScreen({ onBack }) {
         fecha: new Date().toISOString().split('T')[0],
         fecha_fin: '',
         tipo: tiposFestivo.length > 0 ? tiposFestivo[0].id : '',
-        imputacion_ano: new Date().getFullYear()
+        imputacion_ano: new Date().getFullYear(),
+        horas: ''
       });
       setEditingId(null);
       fetchFestivos();
@@ -149,7 +153,8 @@ function FestivosScreen({ onBack }) {
       fecha: festivo.fecha,
       fecha_fin: festivo.fecha_fin || '',
       tipo: festivo.tipo,
-      imputacion_ano: festivo.imputacion_ano
+      imputacion_ano: festivo.imputacion_ano,
+      horas: festivo.horas || ''
     });
     setEditingId(festivo.id);
   };
@@ -174,7 +179,8 @@ function FestivosScreen({ onBack }) {
       fecha: new Date().toISOString().split('T')[0],
       fecha_fin: '',
       tipo: tiposFestivo.length > 0 ? tiposFestivo[0].id : '',
-      imputacion_ano: new Date().getFullYear()
+      imputacion_ano: new Date().getFullYear(),
+      horas: ''
     });
     setEditingId(null);
   };
@@ -284,6 +290,23 @@ function FestivosScreen({ onBack }) {
             </select>
           </div>
 
+          {formData.tipo && getHolidayTypeIsHours(parseInt(formData.tipo)) && (
+            <div className="form-group">
+              <label htmlFor="horas">Hours:</label>
+              <input
+                type="number"
+                id="horas"
+                name="horas"
+                value={formData.horas}
+                onChange={handleInputChange}
+                min="0"
+                step="0.5"
+                required
+              />
+              <small>Enter the number of hours</small>
+            </div>
+          )}
+
           <div className="form-group">
             <label htmlFor="imputacion_ano">Year:</label>
             <select
@@ -330,6 +353,7 @@ function FestivosScreen({ onBack }) {
                 <th>Date Range</th>
                 <th>Holiday Type</th>
                 <th>Type</th>
+                <th>Hours</th>
                 <th>Year</th>
                 <th>Actions</th>
               </tr>
@@ -358,6 +382,12 @@ function FestivosScreen({ onBack }) {
                         Full Day
                       </span>
                     )}
+                  </td>
+                  <td>
+                    {(festivo.isHoras === 1 || getHolidayTypeIsHours(festivo.tipo)) && festivo.horas ? 
+                      festivo.horas : 
+                      (festivo.isHoras === 1 || getHolidayTypeIsHours(festivo.tipo)) ? '-' : 'N/A'
+                    }
                   </td>
                   <td>{festivo.imputacion_ano}</td>
                   <td>

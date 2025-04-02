@@ -77,7 +77,7 @@ const createTables = (db) => {
       CREATE TABLE IF NOT EXISTS CalendarioAnual (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tipoFestivo INTEGER NOT NULL,
-        cantidad INTEGER NOT NULL,
+        cantidad REAL NOT NULL,
         ano INTEGER NOT NULL,
         FOREIGN KEY (tipoFestivo) REFERENCES TipoFestivo(id)
       )
@@ -93,6 +93,7 @@ const createTables = (db) => {
         tipo INTEGER NOT NULL,
         pendiente INTEGER NOT NULL DEFAULT 1,
         imputacion_ano INTEGER NOT NULL,
+        horas REAL,
         FOREIGN KEY (username) REFERENCES Empleados(username),
         FOREIGN KEY (tipo) REFERENCES TipoFestivo(id)
       )
@@ -445,7 +446,7 @@ const registerEmpleadoFestivosRoutes = (app, db) => {
 
   // Create a new employee holiday
   app.post('/api/calendario/festivos', (req, res) => {
-    const { username, fecha, fecha_fin, tipo, imputacion_ano } = req.body;
+    const { username, fecha, fecha_fin, tipo, imputacion_ano, horas } = req.body;
 
     if (!username || !fecha || !tipo || !imputacion_ano) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -535,11 +536,11 @@ const registerEmpleadoFestivosRoutes = (app, db) => {
 
                 // Insert the holiday
                 const sql = `
-                  INSERT INTO empleado_festivos (username, fecha, fecha_fin, tipo, pendiente, imputacion_ano)
-                  VALUES (?, ?, ?, ?, ?, ?)
+                  INSERT INTO empleado_festivos (username, fecha, fecha_fin, tipo, pendiente, imputacion_ano, horas)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)
                 `;
 
-                db.run(sql, [username, fecha, fecha_fin || null, tipo, 1, imputacion_ano], function(err) {
+                db.run(sql, [username, fecha, fecha_fin || null, tipo, 1, imputacion_ano, horas || null], function(err) {
                   if (err) {
                     return res.status(500).json({ error: err.message });
                   }
@@ -562,7 +563,7 @@ const registerEmpleadoFestivosRoutes = (app, db) => {
   // Update an employee holiday
   app.put('/api/calendario/festivos/:id', (req, res) => {
     const { id } = req.params;
-    const { fecha, fecha_fin, tipo, pendiente, imputacion_ano } = req.body;
+    const { fecha, fecha_fin, tipo, pendiente, imputacion_ano, horas } = req.body;
 
     if (!fecha || !tipo || pendiente === undefined || !imputacion_ano) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -654,11 +655,11 @@ const registerEmpleadoFestivosRoutes = (app, db) => {
       function updateHoliday() {
         const sql = `
           UPDATE empleado_festivos 
-          SET fecha = ?, fecha_fin = ?, tipo = ?, pendiente = ?, imputacion_ano = ?
+          SET fecha = ?, fecha_fin = ?, tipo = ?, pendiente = ?, imputacion_ano = ?, horas = ?
           WHERE id = ?
         `;
 
-        db.run(sql, [fecha, fecha_fin || null, tipo, pendiente, imputacion_ano, id], function(err) {
+        db.run(sql, [fecha, fecha_fin || null, tipo, pendiente, imputacion_ano, horas || null, id], function(err) {
           if (err) {
             return res.status(500).json({ error: err.message });
           }
