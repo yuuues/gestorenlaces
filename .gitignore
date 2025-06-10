@@ -139,4 +139,5 @@ dist
 backend/bookmarks.db
 frontend/build
 json/bookmarks.json
+json/servers.json
 .env

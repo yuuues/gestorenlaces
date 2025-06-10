@@ -16,6 +16,36 @@
   font-size: 1.8rem;
 }
 
+.view-tabs {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 15px;
+}
+
+.view-tab {
+  background-color: transparent;
+  color: #ccc;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 16px;
+  margin: 0 10px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.view-tab:hover {
+  color: white;
+}
+
+.view-tab.active {
+  color: white;
+  border-bottom: 2px solid #4a90e2;
+}
+
 .search-container {
   max-width: 500px;
   margin: 0 auto;
@@ -48,6 +78,11 @@
   overflow-y: auto;
 }
 
+.main-content.full-width {
+  flex: 1;
+  width: 100%;
+}
+
 .error-message {
   color: #d32f2f;
   background-color: #ffebee;
@@ -64,4 +99,3 @@
   font-size: 1.2rem;
   color: #666;
 }
-

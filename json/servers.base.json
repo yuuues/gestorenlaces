@@ -1,0 +1,17 @@
+[
+  {
+    "name": "api_gateway",
+    "url": "http://api.example.com",
+    "description": "API Gateway Server"
+  },
+  {
+    "name": "database",
+    "url": "http://db.example.com",
+    "description": "Database Server"
+  },
+  {
+    "name": "auth_service",
+    "url": "http://auth.example.com",
+    "description": "Authentication Service"
+  }
+]
