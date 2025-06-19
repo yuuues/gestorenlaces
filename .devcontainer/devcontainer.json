@@ -7,7 +7,7 @@
       "version": "18"
     }
   },
-  "postCreateCommand": "cd frontend && npm install && cd ../backend && npm install && npm start",
+  "postCreateCommand": "cd frontend && npm install && cd ../backend && npm install",
   "forwardPorts": [3000, 5000],
   "customizations": {
     "vscode": {
