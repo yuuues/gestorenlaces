@@ -124,3 +124,4 @@ Each bookmark has the following fields:
 ## Initial Data
 
 The application comes with sample bookmarks in the `json/bookmarks.json` file. These will be imported into the database on first run if the database doesn't exist.
+
