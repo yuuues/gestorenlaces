@@ -125,6 +125,18 @@
   font-size: 18px;
 }
 
+.server-description {
+  margin-bottom: 15px;
+  padding-left: 5px;
+}
+
+.server-description p {
+  margin: 0;
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;

@@ -168,6 +168,11 @@ const ServerHealth = () => {
                   {serverData.status === 'ok' ? 'OK' : 'Error'}
                 </span>
               </div>
+              {serverData.description && (
+                <div className="server-description">
+                  <p>{serverData.description}</p>
+                </div>
+              )}
 
               <div className="server-info">
                 <p><strong>URL:</strong> {serverData.info.url}</p>

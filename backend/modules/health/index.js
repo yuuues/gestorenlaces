@@ -118,6 +118,7 @@ const registerRoutes = (app, db) => {
             results[server.name] = {
               name: server.name,
               status: response.status === 200 ? 'ok' : 'error',
+              description: server.description,
               components: response.data ? (response.data.components || response.data) : {},
               info: {
                 url: server.url,
@@ -140,6 +141,7 @@ const registerRoutes = (app, db) => {
             results[server.name] = {
               name: server.name,
               status: 'error',
+              description: server.description,
               components: {},
               info: {
                 url: server.url,
