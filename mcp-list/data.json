@@ -1,0 +1,35 @@
+[
+  {
+    "id": "context7",
+    "name": "Context7",
+    "description": "MCP para búsqueda y consulta de documentación de librerías en tiempo real",
+    "folder": "context7",
+    "icon": "📚",
+    "tags": ["documentation", "search", "libraries"]
+  },
+  {
+    "id": "sql-server",
+    "name": "SQL Server MCP",
+    "description": "Conector MCP para bases de datos SQL Server, permite consultas y gestión de bases de datos",
+    "folder": "sql-server",
+    "icon": "🗄️",
+    "tags": ["database", "sql", "server"]
+  },
+  {
+    "id": "file-system",
+    "name": "File System MCP",
+    "description": "MCP para operaciones de sistema de archivos con soporte para lectura y escritura",
+    "folder": "file-system",
+    "icon": "📁",
+    "tags": ["filesystem", "files", "storage"]
+  },
+  {
+    "id": "api-gateway",
+    "name": "API Gateway MCP",
+    "description": "Gateway para conectar con APIs externas de forma segura y controlada",
+    "folder": "api-gateway",
+    "icon": "🌐",
+    "tags": ["api", "gateway", "integration"]
+  }
+]
+

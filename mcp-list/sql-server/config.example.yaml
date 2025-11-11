@@ -1,0 +1,26 @@
+servers:
+  - name: production
+    host: prod-sql.empresa.com
+    port: 1433
+    user: app_user
+    database: production_db
+    encrypt: true
+    trustServerCertificate: false
+    
+  - name: staging
+    host: staging-sql.empresa.com
+    port: 1433
+    user: staging_user
+    database: staging_db
+    encrypt: true
+    trustServerCertificate: false
+    
+  - name: development
+    host: localhost
+    port: 1433
+    user: dev_user
+    database: dev_db
+    encrypt: false
+    trustServerCertificate: true
+
+

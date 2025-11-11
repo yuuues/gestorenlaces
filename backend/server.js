@@ -342,6 +342,86 @@ app.get('/api/export', (req, res) => {
   });
 });
 
+// MCP Routes
+
+// Get all MCPs
+app.get('/api/mcps', (req, res) => {
+  const mcpDataPath = path.join(__dirname, '..', 'mcp-list', 'data.json');
+
+  try {
+    if (!fs.existsSync(mcpDataPath)) {
+      return res.status(404).json({ error: 'MCP data file not found' });
+    }
+
+    const mcpData = JSON.parse(fs.readFileSync(mcpDataPath, 'utf8'));
+    res.json(mcpData);
+  } catch (error) {
+    console.error('Error reading MCP data:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get MCP README
+app.get('/api/mcps/:folder/readme', (req, res) => {
+  const { folder } = req.params;
+  const readmePath = path.join(__dirname, '..', 'mcp-list', folder, 'readme.md');
+
+  try {
+    if (!fs.existsSync(readmePath)) {
+      return res.status(404).json({ error: 'README not found' });
+    }
+
+    const readmeContent = fs.readFileSync(readmePath, 'utf8');
+    res.send(readmeContent);
+  } catch (error) {
+    console.error('Error reading README:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get MCP files list
+app.get('/api/mcps/:folder/files', (req, res) => {
+  const { folder } = req.params;
+  const mcpFolderPath = path.join(__dirname, '..', 'mcp-list', folder);
+
+  try {
+    if (!fs.existsSync(mcpFolderPath)) {
+      return res.status(404).json({ error: 'MCP folder not found' });
+    }
+
+    const files = fs.readdirSync(mcpFolderPath)
+      .filter(file => file !== 'readme.md' && !file.startsWith('.'));
+    
+    res.json(files);
+  } catch (error) {
+    console.error('Error reading MCP files:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Download MCP file
+app.get('/api/mcps/:folder/file/:filename', (req, res) => {
+  const { folder, filename } = req.params;
+  const filePath = path.join(__dirname, '..', 'mcp-list', folder, filename);
+
+  try {
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Check if file is within the allowed directory
+    const mcpFolderPath = path.join(__dirname, '..', 'mcp-list', folder);
+    if (!filePath.startsWith(mcpFolderPath)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    res.download(filePath);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, '..', 'frontend', 'build')));
 

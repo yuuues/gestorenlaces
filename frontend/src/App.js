@@ -4,8 +4,9 @@ import './App.css';
 import CategoryNav from './components/CategoryNav';
 import BookmarkList from './components/BookmarkList';
 import ServerHealth from './components/ServerHealth';
+import McpList from './components/McpList';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBookmark, faServer } from '@fortawesome/free-solid-svg-icons';
+import { faBookmark, faServer, faPlug } from '@fortawesome/free-solid-svg-icons';
 
 function App() {
   const [categories, setCategories] = useState([]);
@@ -15,7 +16,7 @@ function App() {
   const [error, setError] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentView, setCurrentView] = useState('bookmarks'); // 'bookmarks' or 'serverHealth'
+  const [currentView, setCurrentView] = useState('bookmarks'); // 'bookmarks', 'serverHealth', or 'mcps'
 
   // Fetch categories on component mount
   useEffect(() => {
@@ -98,6 +99,12 @@ function App() {
           >
             <FontAwesomeIcon icon={faServer} /> Server Health
           </button>
+          <button 
+            className={`view-tab ${currentView === 'mcps' ? 'active' : ''}`}
+            onClick={() => handleViewChange('mcps')}
+          >
+            <FontAwesomeIcon icon={faPlug} /> MCPs
+          </button>
         </div>
         {currentView === 'bookmarks' && (
           <div className="search-container">
@@ -133,9 +140,13 @@ function App() {
               )}
             </main>
           </>
-        ) : (
+        ) : currentView === 'serverHealth' ? (
           <main className="main-content full-width">
             <ServerHealth />
+          </main>
+        ) : (
+          <main className="main-content full-width">
+            <McpList />
           </main>
         )}
       </div>

@@ -1,0 +1,32 @@
+{
+  "baseUrl": "https://api.ejemplo.com",
+  "version": "v1",
+  "endpoints": [
+    {
+      "name": "users",
+      "path": "/api/v1/users",
+      "methods": ["GET", "POST", "PUT", "DELETE"],
+      "auth": "bearer",
+      "rateLimit": 50,
+      "description": "Gestión de usuarios"
+    },
+    {
+      "name": "products",
+      "path": "/api/v1/products",
+      "methods": ["GET", "POST"],
+      "auth": "apikey",
+      "rateLimit": 100,
+      "description": "Catálogo de productos"
+    },
+    {
+      "name": "orders",
+      "path": "/api/v1/orders",
+      "methods": ["GET", "POST"],
+      "auth": "bearer",
+      "rateLimit": 75,
+      "description": "Gestión de pedidos"
+    }
+  ]
+}
+
+
