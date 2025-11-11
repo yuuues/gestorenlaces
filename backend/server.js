@@ -10,22 +10,6 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // Module system
 const loadedModules = [];
 
-// Middleware to check for module configuration password
-const checkModuleConfigPassword = (req, res, next) => {
-  const providedPassword = req.headers['module-config-password'];
-  const correctPassword = process.env.MODULE_CONFIG_PASSWORD;
-
-  if (!correctPassword) {
-    return res.status(500).json({ error: 'Module configuration password not set in environment variables' });
-  }
-
-  if (!providedPassword || providedPassword !== correctPassword) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid module configuration password' });
-  }
-
-  next();
-};
-
 // Check if frontend build exists, if not build it
 const frontendBuildPath = path.join(__dirname, '..', 'frontend', 'build');
 const indexHtmlPath = path.join(frontendBuildPath, 'index.html');
@@ -128,11 +112,6 @@ const loadModules = () => {
     .filter(dirent => dirent.isDirectory())
     .map(dirent => dirent.name);
 
-  // Apply password protection to module configuration routes
-  app.use('/api/*/configuracion', checkModuleConfigPassword);
-  app.use('/api/*/tipos', checkModuleConfigPassword);
-  app.use('/api/modules/config', checkModuleConfigPassword);
-
   // Load each module
   moduleDirs.forEach(moduleName => {
     const modulePath = path.join(modulesPath, moduleName);
@@ -180,22 +159,6 @@ app.get('/api/modules', (req, res) => {
   }));
 
   res.json(moduleInfo);
-});
-
-// API endpoint to validate module configuration password
-app.post('/api/modules/validate-password', (req, res) => {
-  const providedPassword = req.headers['module-config-password'];
-  const correctPassword = process.env.MODULE_CONFIG_PASSWORD;
-
-  if (!correctPassword) {
-    return res.status(500).json({ error: 'Module configuration password not set in environment variables' });
-  }
-
-  if (!providedPassword || providedPassword !== correctPassword) {
-    return res.status(401).json({ error: 'Invalid password', valid: false });
-  }
-
-  res.json({ message: 'Password is valid', valid: true });
 });
 
 // API Routes
