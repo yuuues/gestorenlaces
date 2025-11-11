@@ -141,3 +141,4 @@ frontend/build
 json/bookmarks.json
 json/servers.json
 .env
+mcp-list/*
