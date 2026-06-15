@@ -4,11 +4,12 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { library } from '@fortawesome/fontawesome-svg-core';
 import { fas } from '@fortawesome/free-solid-svg-icons';
 import { fab } from '@fortawesome/free-brands-svg-icons';
+import { faPenToSquare, faTrash } from '@fortawesome/free-solid-svg-icons';
 
 // Add all icons to the library
 library.add(fas, fab);
 
-function BookmarkList({ bookmarks, selectedCategory, searchQuery, categories }) {
+function BookmarkList({ bookmarks, selectedCategory, searchQuery, categories, editMode, onEdit, onDelete }) {
   // Group bookmarks by category
   const bookmarksByCategory = useMemo(() => {
     const grouped = {};
@@ -40,6 +41,16 @@ function BookmarkList({ bookmarks, selectedCategory, searchQuery, categories }) 
           <div className="bookmarks">
             {bookmarksByCategory[categoryName].map((bookmark) => (
               <div key={bookmark.id} className="bookmark-card">
+                {editMode && (
+                  <div className="bookmark-actions">
+                    <button className="icon-button" onClick={() => onEdit(bookmark)} title="Editar">
+                      <FontAwesomeIcon icon={faPenToSquare} />
+                    </button>
+                    <button className="icon-button" onClick={() => onDelete(bookmark)} title="Borrar">
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </div>
+                )}
                 <h3 className="bookmark-title">{bookmark.short_description}</h3>
                 {bookmark.long_description && (
                   <p className="bookmark-description">{bookmark.long_description}</p>

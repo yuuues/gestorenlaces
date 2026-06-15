@@ -63,12 +63,25 @@ gestorenlaces/
 Crear un fichero `.env` en la raíz del proyecto o en `backend/` (el servidor carga `.env` desde la raíz superior) con, al menos:
 
 - `PORT` (opcional): Puerto del backend. Por defecto `5000`.
+- `ADMIN_KEY` (requerido para gestionar datos desde la web): clave estática que protege las rutas de escritura (alta/edición/borrado de enlaces y servidores). Si no está configurada, las escrituras quedan deshabilitadas ("fail closed") y devuelven `503`; las rutas de lectura siguen siendo públicas.
 
 Ejemplo:
 
 ```
 PORT=5000
+ADMIN_KEY=tu-clave-secreta
 ```
+
+## Autenticación
+
+La gestión de datos desde la web (crear/editar/borrar enlaces y servidores) está protegida por una clave estática definida en la variable de entorno `ADMIN_KEY` del fichero `.env`.
+
+- Las rutas de lectura (`GET`) son siempre públicas.
+- Las rutas de escritura (`POST`/`PUT`/`DELETE` de bookmarks y servidores) requieren la cabecera `x-admin-key` con el valor de `ADMIN_KEY`.
+  - Sin clave configurada en el servidor: las escrituras devuelven `503` (gestión deshabilitada).
+  - Clave ausente o incorrecta en la petición: `401`.
+- Endpoint de verificación: `POST /api/auth/verify` valida la clave (vía cabecera `x-admin-key`) sin realizar ninguna acción; responde `200` con `{ "ok": true }` si es válida.
+- En el frontend, un botón con icono de candado en la cabecera permite "desbloquear" el modo edición introduciendo la clave; mientras esté desbloqueado, la clave se adjunta automáticamente a las peticiones (se guarda en `sessionStorage`, se limpia al cerrar la pestaña). Al bloquear, los controles de edición desaparecen.
 
 ## Instalación y ejecución
 
@@ -188,10 +201,11 @@ En el frontend existe una pestaña “MCPs” que consume estas APIs para explor
 
 ## Frontend
 
-La UI ofrece tres vistas principales accesibles por pestañas:
-- Bookmarks: listado filtrable por texto con categorías en la barra lateral.
-- Server Health: monitor de salud de servicios con controles de refresco y detalle por componente.
-- MCPs: exploración de los MCPs disponibles y lectura de su documentación.
+La UI usa `react-router-dom`, por lo que cada vista tiene una URL canónica enlazable:
+- `/` — Bookmarks: listado filtrable por texto con categorías en la barra lateral.
+- `/health` — Server Health: monitor de salud de servicios con controles de refresco y detalle por componente.
+- `/mcps` — MCPs: exploración de los MCPs disponibles y lectura de su documentación.
+- `/mcps/:folder` — Deep-link al detalle de un MCP concreto (p.ej. `/mcps/sqlserver`); abre directamente su documentación. Si el `folder` no existe, se muestra "MCP no encontrado".
 
 ## Datos iniciales
 

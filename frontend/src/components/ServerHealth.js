@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { checkServersHealth } from '../api';
+import { checkServersHealth, getServers, deleteServer } from '../api';
+import { useEditMode } from '../EditModeContext';
+import ServerForm from './ServerForm';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheckCircle, faTimesCircle, faSync, faChevronDown, faChevronUp, faPlay, faPause } from '@fortawesome/free-solid-svg-icons';
+import { faCheckCircle, faTimesCircle, faSync, faChevronDown, faChevronUp, faPlay, faPause, faPenToSquare, faTrash, faPlus } from '@fortawesome/free-solid-svg-icons';
 import './ServerHealth.css';
 
 const ServerHealth = () => {
@@ -13,18 +15,63 @@ const ServerHealth = () => {
   const [refreshInterval, setRefreshInterval] = useState(30);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const intervalRef = useRef(null);
+  const { editMode, lock } = useEditMode();
+  const [servers, setServers] = useState([]);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
 
+  // Note: this intentionally does NOT toggle `loading` on every call. `loading`
+  // is only true for the very first load (initial useState); refreshes (manual
+  // or auto) reuse the existing view so it doesn't flash "Loading..." each time.
   const fetchServerHealth = async () => {
-    setLoading(true);
     setError(null);
     try {
       const response = await checkServersHealth();
       setServerStatus(response.data);
-      setLoading(false);
     } catch (err) {
-      setError('Failed to fetch server health status. Please try again later.');
-      console.error('Error fetching server health:', err);
+      // Si el error tiene respuesta, podría ser un error controlado del backend
+      if (err.response && err.response.data && typeof err.response.data === 'object' && !err.response.data.error) {
+        setServerStatus(err.response.data);
+      } else {
+        const errorMessage = err.message || 'Failed to fetch server health status. Please try again later.';
+        setError(errorMessage);
+        console.error('Error fetching server health:', err);
+      }
+    } finally {
       setLoading(false);
+    }
+  };
+
+  const loadServers = async () => {
+    try {
+      const response = await getServers();
+      setServers(response.data);
+    } catch (err) {
+      console.error('Error fetching servers:', err);
+    }
+  };
+
+  const openAdd = () => { setEditing(null); setFormOpen(true); };
+  const openEdit = (server) => { setEditing(server); setFormOpen(true); };
+  const handleSaved = () => {
+    setFormOpen(false);
+    setEditing(null);
+    loadServers();
+    fetchServerHealth();
+  };
+  const handleDelete = async (server) => {
+    if (!window.confirm(`¿Borrar el servidor "${server.name}"?`)) return;
+    try {
+      await deleteServer(server.id);
+      loadServers();
+      fetchServerHealth();
+    } catch (err) {
+      if (err.response && err.response.status === 401) {
+        lock();
+        alert('Sesión de edición caducada. Vuelve a desbloquear.');
+      } else {
+        alert(err.response?.data?.error || 'No se pudo borrar.');
+      }
     }
   };
 
@@ -32,16 +79,18 @@ const ServerHealth = () => {
   const initializeExpandedState = (data) => {
     const expandedState = {};
 
-    Object.entries(data).forEach(([serverName, serverData]) => {
-      if (serverData.components) {
-        Object.entries(serverData.components).forEach(([componentName, componentData]) => {
-          // Create a unique key for each component
-          const componentKey = `${serverName}-${componentName}`;
-          // Set to expanded if status is error, collapsed if ok
-          expandedState[componentKey] = componentData.status !== 'ok';
-        });
-      }
-    });
+    if (data && typeof data === 'object') {
+      Object.entries(data).forEach(([serverName, serverData]) => {
+        if (serverData && serverData.components) {
+          Object.entries(serverData.components).forEach(([componentName, componentData]) => {
+            // Create a unique key for each component
+            const componentKey = `${serverName}-${componentName}`;
+            // Set to expanded if status is error, collapsed if ok
+            expandedState[componentKey] = componentData && componentData.status !== 'ok';
+          });
+        }
+      });
+    }
 
     return expandedState;
   };
@@ -62,7 +111,7 @@ const ServerHealth = () => {
 
   // Handle refresh interval change
   const handleIntervalChange = (e) => {
-    const value = parseInt(e.target.value);
+    const value = parseInt(e.target.value, 10);
     if (value > 0) {
       setRefreshInterval(value);
     }
@@ -71,6 +120,7 @@ const ServerHealth = () => {
   // Initial fetch on component mount
   useEffect(() => {
     fetchServerHealth();
+    loadServers();
   }, []);
 
   // Setup or clear interval based on autoRefreshEnabled state
@@ -125,6 +175,11 @@ const ServerHealth = () => {
       <div className="server-health-header">
         <h2>Server Health Status</h2>
         <div className="refresh-controls">
+          {editMode && (
+            <button className="add-button" onClick={openAdd}>
+              <FontAwesomeIcon icon={faPlus} /> Añadir servidor
+            </button>
+          )}
           <div className="auto-refresh-container">
             <label htmlFor="refreshInterval">Auto-refresh every:</label>
             <input
@@ -167,11 +222,25 @@ const ServerHealth = () => {
                   <FontAwesomeIcon icon={serverData.status === 'ok' ? faCheckCircle : faTimesCircle} />
                   {serverData.status === 'ok' ? 'OK' : 'Error'}
                 </span>
+                {editMode && (() => {
+                  const record = servers.find((s) => s.name === serverData.name);
+                  if (!record) return null;
+                  return (
+                    <span className="server-actions">
+                      <button className="icon-button" onClick={() => openEdit(record)} title="Editar">
+                        <FontAwesomeIcon icon={faPenToSquare} />
+                      </button>
+                      <button className="icon-button" onClick={() => handleDelete(record)} title="Borrar">
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </span>
+                  );
+                })()}
               </div>
 
               <div className="server-info">
-                <p><strong>URL:</strong> {serverData.info.url}</p>
-                <p><strong>Connection:</strong> {serverData.info.connection}</p>
+                <p><strong>URL:</strong> {serverData.info?.url || 'N/A'}</p>
+                <p><strong>Connection:</strong> {serverData.info?.connection || 'N/A'}</p>
               </div>
 
               {serverData.components && Object.keys(serverData.components).length > 0 && (
@@ -208,7 +277,7 @@ const ServerHealth = () => {
                         {componentData.info && (
                           <div className="component-info">
                             {Object.entries(componentData.info).map(([key, value]) => (
-                              <p key={key}><strong>{key}:</strong> {value}</p>
+                              <p key={key}><strong>{key}:</strong> {typeof value === 'object' ? (value?.message || JSON.stringify(value)) : String(value)}</p>
                             ))}
                           </div>
                         )}
@@ -217,7 +286,7 @@ const ServerHealth = () => {
                             <h5>Errors</h5>
                             <ul>
                               {componentData.errors.map((error, index) => (
-                                <li key={index}>{error}</li>
+                                <li key={index}>{typeof error === 'string' ? error : (error && error.message) ? error.message : JSON.stringify(error)}</li>
                               ))}
                             </ul>
                           </div>
@@ -230,6 +299,14 @@ const ServerHealth = () => {
             </div>
           ))}
         </div>
+      )}
+
+      {formOpen && (
+        <ServerForm
+          server={editing}
+          onClose={() => { setFormOpen(false); setEditing(null); }}
+          onSaved={handleSaved}
+        />
       )}
     </div>
   );

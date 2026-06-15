@@ -99,3 +99,27 @@
   font-size: 1.2rem;
   color: #666;
 }
+
+.lock-button {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: inherit;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 12px;
+}
+.lock-button.active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+
+.add-button {
+  margin-left: 12px;
+  padding: 8px 16px;
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}

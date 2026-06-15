@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const { requireAuth } = require('./auth');
 
 // Module system
 const loadedModules = [];
@@ -32,6 +33,12 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+
+// Validate the admin key without performing any action. Used by the frontend
+// to confirm the key before entering edit mode. requireAuth handles 401/503.
+app.post('/api/auth/verify', requireAuth, (req, res) => {
+  res.json({ ok: true });
+});
 
 // Database setup
 const dbPath = path.join(__dirname, 'bookmarks.db');
@@ -197,7 +204,7 @@ app.get('/api/categories', (req, res) => {
 });
 
 // Create a new bookmark
-app.post('/api/bookmarks', (req, res) => {
+app.post('/api/bookmarks', requireAuth, (req, res) => {
   const { category, short_description, long_description, link, icon } = req.body;
 
   if (!category || !short_description || !link) {
@@ -224,7 +231,7 @@ app.post('/api/bookmarks', (req, res) => {
 });
 
 // Update a bookmark
-app.put('/api/bookmarks/:id', (req, res) => {
+app.put('/api/bookmarks/:id', requireAuth, (req, res) => {
   const { id } = req.params;
   const { category, short_description, long_description, link, icon } = req.body;
 
@@ -271,7 +278,7 @@ app.put('/api/bookmarks/:id', (req, res) => {
 });
 
 // Delete a bookmark
-app.delete('/api/bookmarks/:id', (req, res) => {
+app.delete('/api/bookmarks/:id', requireAuth, (req, res) => {
   const { id } = req.params;
 
   db.run('DELETE FROM bookmarks WHERE id = ?', [id], function(err) {
@@ -307,9 +314,24 @@ app.get('/api/export', (req, res) => {
 
 // MCP Routes
 
+// Base directory for all MCP assets. Used to confine path resolution and
+// prevent path traversal via the :folder / :filename route params.
+const mcpBaseDir = path.join(__dirname, '..', 'mcp-list');
+
+// Resolve a path inside the MCP base dir, returning null if it would escape it
+// (e.g. when folder/filename contain "../"). The trailing separator check
+// ensures "mcp-list-evil" cannot pass as if it were inside "mcp-list".
+const resolveMcpPath = (...segments) => {
+  const resolved = path.resolve(mcpBaseDir, ...segments);
+  if (resolved !== mcpBaseDir && !resolved.startsWith(mcpBaseDir + path.sep)) {
+    return null;
+  }
+  return resolved;
+};
+
 // Get all MCPs
 app.get('/api/mcps', (req, res) => {
-  const mcpDataPath = path.join(__dirname, '..', 'mcp-list', 'data.json');
+  const mcpDataPath = path.join(mcpBaseDir, 'data.json');
 
   try {
     if (!fs.existsSync(mcpDataPath)) {
@@ -327,7 +349,11 @@ app.get('/api/mcps', (req, res) => {
 // Get MCP README
 app.get('/api/mcps/:folder/readme', (req, res) => {
   const { folder } = req.params;
-  const readmePath = path.join(__dirname, '..', 'mcp-list', folder, 'readme.md');
+  const readmePath = resolveMcpPath(folder, 'readme.md');
+
+  if (!readmePath) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
 
   try {
     if (!fs.existsSync(readmePath)) {
@@ -345,7 +371,11 @@ app.get('/api/mcps/:folder/readme', (req, res) => {
 // Get MCP files list
 app.get('/api/mcps/:folder/files', (req, res) => {
   const { folder } = req.params;
-  const mcpFolderPath = path.join(__dirname, '..', 'mcp-list', folder);
+  const mcpFolderPath = resolveMcpPath(folder);
+
+  if (!mcpFolderPath) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
 
   try {
     if (!fs.existsSync(mcpFolderPath)) {
@@ -365,17 +395,15 @@ app.get('/api/mcps/:folder/files', (req, res) => {
 // Download MCP file
 app.get('/api/mcps/:folder/file/:filename', (req, res) => {
   const { folder, filename } = req.params;
-  const filePath = path.join(__dirname, '..', 'mcp-list', folder, filename);
+  const filePath = resolveMcpPath(folder, filename);
+
+  if (!filePath) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
 
   try {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
-    }
-
-    // Check if file is within the allowed directory
-    const mcpFolderPath = path.join(__dirname, '..', 'mcp-list', folder);
-    if (!filePath.startsWith(mcpFolderPath)) {
-      return res.status(403).json({ error: 'Access denied' });
     }
 
     res.download(filePath);
@@ -399,7 +427,9 @@ app.listen(PORT, () => {
 });
 
 // Close database connection when app is terminated
-process.on('SIGINT', () => {
+const shutdown = () => {
   db.close();
   process.exit(0);
-});
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

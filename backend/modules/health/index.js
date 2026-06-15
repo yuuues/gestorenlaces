@@ -1,26 +1,11 @@
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { sendSystemNotification } = require('../../notify');
+const { requireAuth } = require('../../auth');
 
 // Store last notification times for each server
 const lastNotificationTimes = {};
-
-// Function to send system notification
-const sendSystemNotification = (title, message) => {
-  // Use PowerShell to display a Windows notification
-  const escapedMessage = message.replace(/'/g, "''");
-  const escapedTitle = title.replace(/'/g, "''");
-  const command = `powershell -Command "& {[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; $template = [Windows.UI.Notifications.ToastTemplateType]::ToastText02; $xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent($template); $xml.GetElementsByTagName('text')[0].InnerText = '${escapedTitle}'; $xml.GetElementsByTagName('text')[1].InnerText = '${escapedMessage}'; $toast = [Windows.UI.Notifications.ToastNotification]::new($xml); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Gestor de Enlaces').Show($toast);}"`;
-
-  exec(command, (error) => {
-    if (error) {
-      console.error('Error sending notification:', error);
-      // Fallback to console log if notification fails
-      console.log(`NOTIFICATION: ${title} - ${message}`);
-    }
-  });
-};
 
 // Initialize the health module
 exports.initialize = (app, db) => {
@@ -107,37 +92,67 @@ const registerRoutes = (app, db) => {
           return res.status(500).json({ error: err.message });
         }
 
-        const results = {};
         const currentTime = Date.now();
         const minTimeBetweenNotifications = 300 * 1000; // 300 seconds in milliseconds
 
-        // Check each server
-        for (const server of servers) {
+        // Only notify about a server's error state once per interval.
+        const notifyOnce = (serverName, title, message) => {
+          const lastNotificationTime = lastNotificationTimes[serverName] || 0;
+          if (currentTime - lastNotificationTime >= minTimeBetweenNotifications) {
+            sendSystemNotification(title, message);
+            lastNotificationTimes[serverName] = currentTime;
+          }
+        };
+
+        // Check all servers concurrently so total time is bounded by the
+        // slowest server, not the sum of all of them.
+        const checkOne = async (server) => {
           try {
             const response = await checkServerHealth(server.url);
-            results[server.name] = {
+            const isOk = response.status === 200;
+            const data = response.data || {};
+
+            const entry = {
               name: server.name,
-              status: response.status === 200 ? 'ok' : 'error',
-              components: response.data ? (response.data.components || response.data) : {},
+              status: isOk ? 'ok' : 'error',
+              components: data.components || (data.status ? data : {}),
               info: {
                 url: server.url,
-                connection: `Conexión validada y recibido codigo ${response.status} ${response.status === 200 ? 'ok' : 'error'}!`
+                connection: isOk
+                  ? `Conexión validada y recibido código ${response.status} ok!`
+                  : `Servidor respondió con código ${response.status}, posiblemente con errores en componentes.`
               }
             };
 
             // If status is error, send notification if enough time has passed
-            if (response.status !== 200) {
-              const lastNotificationTime = lastNotificationTimes[server.name] || 0;
-              if (currentTime - lastNotificationTime >= minTimeBetweenNotifications) {
-                sendSystemNotification(
-                  `${server.name}: Error de Salud`,
-                  `El servidor ha devuelto un código de error: ${response.status}`
-                );
-                lastNotificationTimes[server.name] = currentTime;
+            if (!isOk) {
+              // Collect detailed error message from components if available
+              let detail = '';
+              if (data.components) {
+                const errorComponents = Object.values(data.components)
+                  .filter(c => c.status !== 'ok')
+                  .map(c => c.name || 'Componente desconocido');
+                if (errorComponents.length > 0) {
+                  detail = ` Componentes en error: ${errorComponents.join(', ')}`;
+                }
               }
+
+              notifyOnce(
+                server.name,
+                `${server.name}: Estado Crítico`,
+                `El servidor ha devuelto un código de error: ${response.status}.${detail}`
+              );
             }
+
+            return [server.name, entry];
           } catch (error) {
-            results[server.name] = {
+            notifyOnce(
+              server.name,
+              `${server.name}: Error de Conexión`,
+              `Error al conectar con el servidor: ${error.message}`
+            );
+
+            return [server.name, {
               name: server.name,
               status: 'error',
               components: {},
@@ -146,21 +161,12 @@ const registerRoutes = (app, db) => {
                 connection: `Error de conexión: ${error.message}`
               },
               errors: [error.message]
-            };
-
-            // Send notification for connection error if enough time has passed
-            const lastNotificationTime = lastNotificationTimes[server.name] || 0;
-            if (currentTime - lastNotificationTime >= minTimeBetweenNotifications) {
-              sendSystemNotification(
-                `${server.name}: Error de Conexión`,
-                `Error al conectar con el servidor: ${error.message}`
-              );
-              lastNotificationTimes[server.name] = currentTime;
-            }
+            }];
           }
-        }
+        };
 
-        res.json(results);
+        const entries = await Promise.all(servers.map(checkOne));
+        res.json(Object.fromEntries(entries));
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -168,7 +174,7 @@ const registerRoutes = (app, db) => {
   });
 
   // Add a new server
-  app.post('/api/health/servers', (req, res) => {
+  app.post('/api/health/servers', requireAuth, (req, res) => {
     const { name, url, description } = req.body;
 
     if (!name || !url) {
@@ -191,7 +197,7 @@ const registerRoutes = (app, db) => {
   });
 
   // Update a server
-  app.put('/api/health/servers/:id', (req, res) => {
+  app.put('/api/health/servers/:id', requireAuth, (req, res) => {
     const { id } = req.params;
     const { name, url, description } = req.body;
 
@@ -234,7 +240,7 @@ const registerRoutes = (app, db) => {
   });
 
   // Delete a server
-  app.delete('/api/health/servers/:id', (req, res) => {
+  app.delete('/api/health/servers/:id', requireAuth, (req, res) => {
     const { id } = req.params;
 
     db.run('DELETE FROM servers WHERE id = ?', [id], function(err) {
@@ -253,12 +259,13 @@ const registerRoutes = (app, db) => {
 
 // Function to check server health
 const checkServerHealth = async (url) => {
-  try {
-    const response = await axios.get(url, { timeout: 5000 });
-    return response;
-  } catch (error) {
-    throw error;
-  }
+  // Accept any HTTP status without throwing: this is a health monitor, so a
+  // 4xx/5xx is a valid "response received" that we classify ourselves (only
+  // 200 counts as ok). Network errors (timeout, DNS, refused) still throw.
+  return axios.get(url, {
+    timeout: 5000,
+    validateStatus: () => true
+  });
 };
 
 // Export routes for module info
