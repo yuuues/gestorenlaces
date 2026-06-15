@@ -7,6 +7,7 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { requireAuth } = require('./auth');
+const categories = require('./categories');
 
 // Module system
 const loadedModules = [];
@@ -58,13 +59,15 @@ db.serialize(() => {
   `);
 });
 
-// Initialize database from JSON if it doesn't exist
-const initDbFromJson = () => {
+// Initialize database from JSON if it doesn't exist. Calls onDone() once the
+// bookmarks seeding has finished, so the categories catalog can be derived from
+// real data on first run.
+const initDbFromJson = (onDone = () => {}) => {
   // Check if database is empty
   db.get('SELECT COUNT(*) as count FROM bookmarks', (err, row) => {
     if (err) {
       console.error('Error checking database:', err);
-      return;
+      return onDone();
     }
 
     // If database is empty, import from JSON
@@ -87,22 +90,32 @@ const initDbFromJson = () => {
             );
           });
 
-          stmt.finalize();
-          console.log('Database initialized with data from JSON file.');
+          stmt.finalize(() => {
+            console.log('Database initialized with data from JSON file.');
+            onDone();
+          });
         } catch (error) {
           console.error('Error importing from JSON:', error);
+          onDone();
         }
       } else {
         console.log('JSON file not found. Created empty database.');
+        onDone();
       }
     } else {
       console.log('Database already has data.');
+      onDone();
     }
   });
 };
 
-// Initialize database
-initDbFromJson();
+// Initialize database, then build the categories catalog from it.
+initDbFromJson(() => {
+  categories.createCategoriesTable(db)
+    .then(() => categories.seedCategoriesFromBookmarks(db))
+    .then(() => console.log('Categories catalog ready.'))
+    .catch((err) => console.error('Error initializing categories catalog:', err));
+});
 
 // Load modules
 const loadModules = () => {
@@ -192,15 +205,51 @@ app.get('/api/bookmarks/category/:category', (req, res) => {
   });
 });
 
-// Get all categories
-app.get('/api/categories', (req, res) => {
-  db.all('SELECT DISTINCT category FROM bookmarks', (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-    const categories = rows.map(row => row.category);
-    res.json(categories);
-  });
+// Get all categories (ordered catalog: [{ id, name, position }])
+app.get('/api/categories', async (req, res) => {
+  try {
+    res.json(await categories.listCategories(db));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Create a category (empty, appended at the end)
+app.post('/api/categories', requireAuth, async (req, res) => {
+  try {
+    res.status(201).json(await categories.createCategory(db, req.body.name));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Reorder categories — registered before :id so the path is unambiguous
+app.put('/api/categories/reorder', requireAuth, async (req, res) => {
+  try {
+    await categories.reorderCategories(db, req.body.ids);
+    res.json({ message: 'Orden actualizado' });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Rename a category (also updates the bookmarks that use it)
+app.put('/api/categories/:id(\\d+)', requireAuth, async (req, res) => {
+  try {
+    res.json(await categories.renameCategory(db, Number(req.params.id), req.body.name));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Delete a category (blocked if it still has bookmarks)
+app.delete('/api/categories/:id(\\d+)', requireAuth, async (req, res) => {
+  try {
+    await categories.deleteCategory(db, Number(req.params.id));
+    res.json({ message: 'Categoría borrada' });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // Create a new bookmark
@@ -221,12 +270,15 @@ app.post('/api/bookmarks', requireAuth, (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    db.get('SELECT * FROM bookmarks WHERE id = ?', [this.lastID], (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.status(201).json(row);
-    });
+    const newId = this.lastID;
+    categories.ensureCategory(db, category)
+      .then(() => db.get('SELECT * FROM bookmarks WHERE id = ?', [newId], (err, row) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json(row);
+      }))
+      .catch((err) => res.status(500).json({ error: err.message }));
   });
 });
 
@@ -267,12 +319,14 @@ app.put('/api/bookmarks/:id', requireAuth, (req, res) => {
         return res.status(500).json({ error: err.message });
       }
 
-      db.get('SELECT * FROM bookmarks WHERE id = ?', [id], (err, row) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        res.json(row);
-      });
+      categories.ensureCategory(db, updates.category)
+        .then(() => db.get('SELECT * FROM bookmarks WHERE id = ?', [id], (err, row) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          res.json(row);
+        }))
+        .catch((err) => res.status(500).json({ error: err.message }));
     });
   });
 });
