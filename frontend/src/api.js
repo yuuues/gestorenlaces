@@ -22,6 +22,10 @@ export const verifyKey = (key) =>
 export const getBookmarks = () => api.get('/api/bookmarks');
 export const getBookmarksByCategory = (category) => api.get(`/api/bookmarks/category/${category}`);
 export const getCategories = () => api.get('/api/categories');
+export const createCategory = (name) => api.post('/api/categories', { name });
+export const renameCategory = (id, name) => api.put(`/api/categories/${id}`, { name });
+export const deleteCategory = (id) => api.delete(`/api/categories/${id}`);
+export const reorderCategories = (ids) => api.put('/api/categories/reorder', { ids });
 export const createBookmark = (bookmark) => api.post('/api/bookmarks', bookmark);
 export const updateBookmark = (id, bookmark) => api.put(`/api/bookmarks/${id}`, bookmark);
 export const deleteBookmark = (id) => api.delete(`/api/bookmarks/${id}`);
