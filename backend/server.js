@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 const bodyParser = require('body-parser');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
@@ -32,12 +34,38 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+// Security headers. CSP and Cross-Origin-Resource-Policy are disabled: CSP would
+// block the bundled React app's inline assets, and CORP would conflict with the
+// intentionally open CORS policy.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: false,
+}));
 app.use(cors());
 app.use(bodyParser.json());
 
+// Rate limiting. Reads (GET) stay unthrottled so health polling and browsing are
+// unaffected; only mutating requests are limited, with a stricter cap on the
+// key-checking endpoint to blunt brute-force of ADMIN_KEY.
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 200,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Demasiadas peticiones. Inténtalo de nuevo más tarde.' },
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Inténtalo de nuevo más tarde.' },
+});
+app.use((req, res, next) => (req.method === 'GET' ? next() : writeLimiter(req, res, next)));
+
 // Validate the admin key without performing any action. Used by the frontend
 // to confirm the key before entering edit mode. requireAuth handles 401/503.
-app.post('/api/auth/verify', requireAuth, (req, res) => {
+app.post('/api/auth/verify', authLimiter, requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
@@ -349,7 +377,7 @@ app.delete('/api/bookmarks/:id', requireAuth, (req, res) => {
 });
 
 // Export bookmarks to JSON
-app.get('/api/export', (req, res) => {
+app.get('/api/export', requireAuth, (req, res) => {
   db.all('SELECT category, short_description, long_description, link, icon FROM bookmarks', (err, rows) => {
     if (err) {
       return res.status(500).json({ error: err.message });
