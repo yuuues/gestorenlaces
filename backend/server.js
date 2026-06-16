@@ -10,6 +10,7 @@ const { execSync } = require('child_process');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { requireAuth } = require('./auth');
 const categories = require('./categories');
+const schema = require('./schema');
 
 // Module system
 const loadedModules = [];
@@ -137,13 +138,23 @@ const initDbFromJson = (onDone = () => {}) => {
   });
 };
 
-// Initialize database, then build the categories catalog from it.
-initDbFromJson(() => {
-  categories.createCategoriesTable(db)
-    .then(() => categories.seedCategoriesFromBookmarks(db))
-    .then(() => console.log('Categories catalog ready.'))
-    .catch((err) => console.error('Error initializing categories catalog:', err));
-});
+// Reconcile columns added in later versions before any seeding/queries run,
+// then initialize the database and build the categories catalog. Without this,
+// a database created by an older version is missing newer columns (e.g. `icon`)
+// and inserts/queries fail with "no such column".
+schema.ensureColumns(db, 'bookmarks', [
+  { name: 'long_description', definition: 'TEXT' },
+  { name: 'icon', definition: 'TEXT' },
+])
+  .catch((err) => console.error('Schema reconcile (bookmarks) failed:', err))
+  .finally(() => {
+    initDbFromJson(() => {
+      categories.createCategoriesTable(db)
+        .then(() => categories.seedCategoriesFromBookmarks(db))
+        .then(() => console.log('Categories catalog ready.'))
+        .catch((err) => console.error('Error initializing categories catalog:', err));
+    });
+  });
 
 // Load modules
 const loadModules = () => {

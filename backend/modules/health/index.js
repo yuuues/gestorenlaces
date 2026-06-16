@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { sendSystemNotification } = require('../../notify');
 const { requireAuth } = require('../../auth');
+const schema = require('../../schema');
 
 // Store last notification times for each server
 const lastNotificationTimes = {};
@@ -23,8 +24,11 @@ exports.initialize = (app, db) => {
     `);
   });
 
-  // Load servers from JSON if table is empty
-  loadServersFromJson(db);
+  // Reconcile columns added in later versions before seeding, then load servers
+  // from JSON if the table is empty.
+  schema.ensureColumns(db, 'servers', [{ name: 'description', definition: 'TEXT' }])
+    .catch((err) => console.error('Schema reconcile (servers) failed:', err))
+    .finally(() => loadServersFromJson(db));
 
   // Register routes
   registerRoutes(app, db);
