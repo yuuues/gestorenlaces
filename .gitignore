@@ -142,3 +142,4 @@ json/bookmarks.json
 json/servers.json
 .env
 mcp-list/*
+.worktrees/
