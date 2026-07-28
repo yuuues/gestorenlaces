@@ -103,6 +103,11 @@ test('second consecutive failure opens one incident', async (t) => {
   assert.equal(second.incident.status, 'open');
   assert.equal(second.incident.consecutive_failures, 2);
   assert.equal(second.notification.type, 'opened');
+  assert.deepEqual(second.notification.server, {
+    id: 1,
+    name: 'Magma Nodo 1',
+    url: 'https://magma.example/health'
+  });
   assert.equal((await store.listRecent(20)).length, 1);
   assert.equal(
     (await get(db, 'SELECT COUNT(*) AS count FROM health_incidents')).count,

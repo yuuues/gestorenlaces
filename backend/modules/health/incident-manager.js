@@ -1,4 +1,12 @@
-const notification = (type, incident) => ({ type, incident });
+const notification = (type, incident, result) => ({
+  type,
+  incident,
+  server: {
+    id: result.serverId,
+    name: result.name,
+    url: result.url
+  }
+});
 
 const createIncidentManager = ({
   store,
@@ -12,7 +20,7 @@ const createIncidentManager = ({
         incident = await store.openPending(incident, now);
         return {
           incident,
-          notification: notification('opened', incident)
+          notification: notification('opened', incident, result)
         };
       }
       return { incident, notification: null };
@@ -27,7 +35,9 @@ const createIncidentManager = ({
       });
       return {
         incident,
-        notification: opensNow ? notification('opened', incident) : null
+        notification: opensNow
+          ? notification('opened', incident, result)
+          : null
       };
     }
 
@@ -35,7 +45,7 @@ const createIncidentManager = ({
     if (!incident.alert_notified_at) {
       return {
         incident,
-        notification: notification('opened', incident)
+        notification: notification('opened', incident, result)
       };
     }
 
@@ -46,7 +56,7 @@ const createIncidentManager = ({
     return {
       incident,
       notification: reminderDue
-        ? notification('reminder', incident)
+        ? notification('reminder', incident, result)
         : null
     };
   };
@@ -63,7 +73,8 @@ const createIncidentManager = ({
         incident,
         notification: notification(
           incident.alert_notified_at ? 'recovered' : 'resolved-summary',
-          incident
+          incident,
+          result
         )
       };
     }
@@ -78,7 +89,8 @@ const createIncidentManager = ({
         pendingRecovery.alert_notified_at
           ? 'recovered'
           : 'resolved-summary',
-        pendingRecovery
+        pendingRecovery,
+        result
       )
     };
   };
