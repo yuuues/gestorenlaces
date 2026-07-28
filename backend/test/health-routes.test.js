@@ -56,6 +56,10 @@ const createFixture = async (t) => {
     runNow: async () => {
       monitor.runCount += 1;
       return monitor.getStatus();
+    },
+    mutateCatalog: async (operation) => {
+      monitor.mutationCount = (monitor.mutationCount || 0) + 1;
+      return operation();
     }
   };
   const incidentManager = {
@@ -202,7 +206,7 @@ test('incidents endpoint clamps limit to one through one hundred', async (t) => 
 });
 
 test('deleting a server closes its incident as monitor_removed', async (t) => {
-  const { db, incidentManager, baseUrl } = await createFixture(t);
+  const { db, monitor, incidentManager, baseUrl } = await createFixture(t);
   const inserted = await run(
     db,
     'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
@@ -223,4 +227,5 @@ test('deleting a server closes its incident as monitor_removed', async (t) => {
     reason: 'monitor_removed',
     at: '2026-07-28T10:00:00.000Z'
   });
+  assert.equal(monitor.mutationCount, 1);
 });

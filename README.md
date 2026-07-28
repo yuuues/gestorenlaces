@@ -194,7 +194,7 @@ Rutas del módulo `health`:
 - `POST /api/health/servers` — Crea un servidor a monitorizar. Body JSON: `{ name, url, description }`.
 - `PUT /api/health/servers/:id` — Actualiza un servidor.
 - `DELETE /api/health/servers/:id` — Elimina un servidor.
-- `GET /api/health/status` — Devuelve la última instantánea y el estado del monitor sin ejecutar comprobaciones.
+- `GET /api/health/status` — Devuelve la última instantánea y el estado del monitor (`active`, `degraded` o `stopped`) sin ejecutar comprobaciones.
 - `GET /api/health/incidents?limit=20` — Lista solo incidencias confirmadas; no contiene chequeos correctos.
 - `GET /api/health/check` — Alias compatible y sin efectos secundarios de `/api/health/status`.
 - `POST /api/health/check` — Fuerza una ronda inmediata; requiere `x-admin-key`.
@@ -203,7 +203,7 @@ Inicialización: si la tabla `servers` está vacía, se importan datos desde `js
 
 Notas:
 - El backend controla la vigilancia. Cerrar la pestaña o pulsar “Actualizar vista” no detiene ni ejecuta el monitor.
-- Un HTTP `200` también se considera fallo si el estado global o cualquier componente es distinto de `ok`.
+- Un HTTP `200` también se considera fallo si falta `status: "ok"` en la raíz o si cualquier componente es distinto de `ok`.
 - Un fallo aislado se descarta. El segundo fallo consecutivo abre una incidencia y publica en Teams.
 - Mientras continúe, se recuerda cada 15 minutos; la primera comprobación correcta publica la recuperación.
 - SQLite guarda una fila por incidencia, actualizada durante el fallo. No almacena el histórico de resultados correctos.

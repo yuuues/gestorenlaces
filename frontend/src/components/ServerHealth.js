@@ -23,6 +23,7 @@ import {
 import './ServerHealth.css';
 
 const EMPTY_STATUS = {
+  state: 'stopped',
   started: false,
   running: false,
   lastRunAt: null,
@@ -184,6 +185,13 @@ const ServerHealth = () => {
   };
 
   const snapshotServers = monitorStatus.servers || {};
+  const monitorState =
+    monitorStatus.state ||
+    (monitorStatus.started
+      ? monitorStatus.lastError
+        ? 'degraded'
+        : 'active'
+      : 'stopped');
   const visibleServers =
     Object.keys(snapshotServers).length > 0
       ? snapshotServers
@@ -243,13 +251,13 @@ const ServerHealth = () => {
 
       <section className="monitor-summary" aria-label="Estado del monitor">
         <span
-          className={`monitor-badge ${
-            monitorStatus.started ? 'active' : 'unavailable'
-          }`}
+          className={`monitor-badge ${monitorState}`}
         >
           {monitorStatus.running
             ? 'Comprobando servicios'
-            : monitorStatus.started
+            : monitorState === 'degraded'
+              ? 'Monitor degradado'
+              : monitorState === 'active'
               ? 'Monitor activo'
               : 'Monitor no disponible'}
         </span>

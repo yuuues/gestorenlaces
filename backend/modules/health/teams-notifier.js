@@ -4,7 +4,7 @@ const PRESENTATION = {
   opened: {
     title: '🔴 Incidencia detectada',
     color: 'Attention',
-    summary: 'Se ha confirmado un fallo tras dos comprobaciones consecutivas.'
+    summary: 'Se ha confirmado un fallo tras las comprobaciones configuradas.'
   },
   reminder: {
     title: '🟠 El servicio sigue fallando',
@@ -41,7 +41,7 @@ const formatDuration = (incident) => {
   return minutes < 1 ? 'menos de 1 min' : `${minutes} min`;
 };
 
-const buildFacts = ({ incident, server }) => {
+const buildFacts = ({ type, incident, server }) => {
   const facts = [
     { title: 'Servidor', value: server.name },
     { title: 'URL', value: server.url },
@@ -57,6 +57,14 @@ const buildFacts = ({ incident, server }) => {
     facts.push({
       title: 'Componentes',
       value: affected.join(', ')
+    });
+  }
+  if (type === 'reminder') {
+    facts.push({
+      title: 'Último aviso',
+      value: formatDate(
+        incident.last_reminder_at || incident.alert_notified_at
+      )
     });
   }
   if (incident.resolved_at) {

@@ -71,6 +71,20 @@ test('missing or non-object response body is invalid', () => {
   );
 });
 
+test('HTTP 200 without a top-level ok status is invalid even when components are healthy', () => {
+  const result = evaluateResponse({
+    status: 200,
+    data: {
+      components: {
+        database: { name: 'Database', status: 'ok' }
+      }
+    }
+  });
+
+  assert.equal(result.status, 'error');
+  assert.equal(result.error.kind, 'invalid_response');
+});
+
 test('checkServer passes the configured timeout and normalizes network errors', async () => {
   let receivedOptions;
   const httpClient = {

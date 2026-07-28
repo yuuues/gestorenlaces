@@ -14,6 +14,8 @@ const baseIncident = {
   last_failed_at: '2026-07-28T10:02:00.000Z',
   opened_at: '2026-07-28T10:01:00.000Z',
   resolved_at: null,
+  alert_notified_at: '2026-07-28T10:01:00.000Z',
+  last_reminder_at: null,
   consecutive_failures: 3,
   last_error: {
     kind: 'component',
@@ -64,6 +66,14 @@ test('reminder renders an orange card with accumulated duration', () => {
   assert.match(serialized, /Warning/);
   assert.match(serialized, /2 min/);
   assert.match(serialized, /3/);
+  assert.match(serialized, /Último aviso/);
+  assert.match(serialized, /12:01:00/);
+});
+
+test('opened card wording remains accurate for configurable thresholds', () => {
+  const serialized = JSON.stringify(buildAdaptiveCard(openedNotification));
+
+  assert.doesNotMatch(serialized, /dos comprobaciones/);
 });
 
 test('recovery renders a green card with total duration', () => {

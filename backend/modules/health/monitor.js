@@ -18,8 +18,12 @@ const createHealthMonitor = ({
   let nextRunAt = null;
   let lastError = null;
   let servers = {};
+  let catalogMutationTail = Promise.resolve();
+  let pendingCatalogMutations = 0;
+  let rerunRequested = false;
 
   const getStatus = () => ({
+    state: !started ? 'stopped' : lastError ? 'degraded' : 'active',
     started,
     running,
     lastRunAt,
@@ -29,7 +33,7 @@ const createHealthMonitor = ({
   });
 
   const scheduleNext = () => {
-    if (!started || timer !== null) return;
+    if (!started || timer !== null || pendingCatalogMutations > 0) return;
     nextRunAt = new Date(now().getTime() + intervalMs).toISOString();
     timer = setTimer(() => {
       timer = null;
@@ -67,25 +71,30 @@ const createHealthMonitor = ({
     );
 
     const nextSnapshot = {};
+    const deliveries = [];
     for (const result of results) {
       const outcome = await incidentManager.record(result, checkedAt);
-      let latestIncident = outcome.incident;
+      nextSnapshot[result.name] = {
+        ...result,
+        incident: outcome.incident
+      };
+      if (outcome.notification && outcome.incident) {
+        deliveries.push({ result, outcome });
+      }
+    }
 
-      if (outcome.notification) {
+    await Promise.all(
+      deliveries.map(async ({ result, outcome }) => {
         const delivery = await notifier.send(outcome.notification);
-        latestIncident = await incidentManager.markDelivery(
+        const latestIncident = await incidentManager.markDelivery(
           outcome.incident.id,
           outcome.notification.type,
           checkedAt,
           delivery.delivered
         );
-      }
-
-      nextSnapshot[result.name] = {
-        ...result,
-        incident: latestIncident
-      };
-    }
+        nextSnapshot[result.name].incident = latestIncident;
+      })
+    );
 
     servers = nextSnapshot;
     lastRunAt = checkedAt;
@@ -95,6 +104,10 @@ const createHealthMonitor = ({
 
   const runNow = () => {
     if (activeRun) return activeRun;
+    if (pendingCatalogMutations > 0) {
+      rerunRequested = true;
+      return catalogMutationTail.then(() => activeRun || getStatus());
+    }
 
     if (timer !== null) {
       clearTimer(timer);
@@ -112,10 +125,44 @@ const createHealthMonitor = ({
       .finally(() => {
         running = false;
         activeRun = null;
-        scheduleNext();
+        if (rerunRequested && pendingCatalogMutations === 0) {
+          rerunRequested = false;
+          runNow();
+        } else {
+          scheduleNext();
+        }
       });
 
     return activeRun;
+  };
+
+  const mutateCatalog = (operation) => {
+    if (typeof operation !== 'function') {
+      return Promise.reject(new TypeError('Catalog mutation must be a function'));
+    }
+
+    pendingCatalogMutations += 1;
+    const mutation = catalogMutationTail.then(async () => {
+      if (timer !== null) {
+        clearTimer(timer);
+        timer = null;
+        nextRunAt = null;
+      }
+      if (activeRun) await activeRun;
+
+      try {
+        return await operation();
+      } finally {
+        pendingCatalogMutations -= 1;
+        rerunRequested = true;
+        if (pendingCatalogMutations === 0 && rerunRequested && !activeRun) {
+          rerunRequested = false;
+          Promise.resolve().then(runNow);
+        }
+      }
+    });
+    catalogMutationTail = mutation.catch(() => {});
+    return mutation;
   };
 
   const start = () => {
@@ -137,7 +184,7 @@ const createHealthMonitor = ({
     logger.info('Health monitor stopped.');
   };
 
-  return { start, stop, runNow, getStatus };
+  return { start, stop, runNow, mutateCatalog, getStatus };
 };
 
 module.exports = { createHealthMonitor };

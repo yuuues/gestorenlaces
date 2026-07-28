@@ -100,9 +100,15 @@
   color: #166534;
 }
 
-.monitor-badge.unavailable {
+.monitor-badge.unavailable,
+.monitor-badge.stopped {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.monitor-badge.degraded {
+  background: #ffedd5;
+  color: #9a3412;
 }
 
 .server-list {

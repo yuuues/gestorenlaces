@@ -197,3 +197,18 @@ test('reports an unavailable monitor without hiding configured servers', async (
   expect(screen.getByText('database unavailable')).toBeInTheDocument();
   expect(screen.getByText('Magma Nodo 1')).toBeInTheDocument();
 });
+
+test('shows a degraded monitor when autonomous rounds are failing', async () => {
+  prepareApi({
+    snapshot: {
+      ...healthySnapshot,
+      state: 'degraded',
+      lastError: 'database unavailable'
+    }
+  });
+
+  render(<ServerHealth />);
+
+  expect(await screen.findByText('Monitor degradado')).toBeInTheDocument();
+  expect(screen.getByText('database unavailable')).toBeInTheDocument();
+});

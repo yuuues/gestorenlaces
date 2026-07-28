@@ -18,6 +18,7 @@ const createIncidentManager = ({
       let incident = await store.insertPending(result, now);
       if (failureThreshold <= 1) {
         incident = await store.openPending(incident, now);
+        if (!incident) return { incident: null, notification: null };
         return {
           incident,
           notification: notification('opened', incident, result)
@@ -33,6 +34,7 @@ const createIncidentManager = ({
         status: opensNow ? 'open' : 'pending',
         openedAt: opensNow ? now : active.opened_at
       });
+      if (!incident) return { incident: null, notification: null };
       return {
         incident,
         notification: opensNow
@@ -42,6 +44,7 @@ const createIncidentManager = ({
     }
 
     const incident = await store.updateFailure(active, result, now);
+    if (!incident) return { incident: null, notification: null };
     if (!incident.alert_notified_at) {
       return {
         incident,
@@ -69,6 +72,7 @@ const createIncidentManager = ({
 
     if (active?.status === 'open') {
       const incident = await store.resolve(active, now, 'recovered');
+      if (!incident) return { incident: null, notification: null };
       return {
         incident,
         notification: notification(

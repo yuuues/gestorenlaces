@@ -34,13 +34,13 @@ const evaluateResponse = (response) => {
     };
   }
 
-  if (data.status === undefined && data.components === undefined) {
+  if (data.status === undefined) {
     return {
       status: 'error',
       components: {},
       error: emptyError(
         'invalid_response',
-        'Health response must include status or components'
+        'Health response must include a top-level status'
       )
     };
   }
@@ -61,7 +61,7 @@ const evaluateResponse = (response) => {
     .filter(([, component]) => !component || component.status !== 'ok')
     .map(([key, component]) => component?.name || key);
 
-  if (data.status !== undefined && data.status !== 'ok') {
+  if (data.status !== 'ok') {
     return {
       status: 'error',
       components,

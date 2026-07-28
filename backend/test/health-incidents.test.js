@@ -230,6 +230,24 @@ test('removing a server closes an open incident without recovery delivery', asyn
   assert.equal(await store.getPendingRecovery(errorResult.serverId), null);
 });
 
+test('a stale failure cannot reopen an incident closed after server removal', async (t) => {
+  const { store, manager } = await fixture(t);
+  const opened = await openIncident(manager);
+  await manager.closeForRemovedServer(errorResult.serverId, PLUS_TWO_MINUTES);
+
+  const staleUpdate = await store.updateFailure(
+    opened,
+    errorResult,
+    '2026-07-28T10:03:00.000Z'
+  );
+  const [stored] = await store.listRecent(20);
+
+  assert.equal(staleUpdate, null);
+  assert.equal(stored.status, 'resolved');
+  assert.equal(stored.resolution_reason, 'monitor_removed');
+  assert.equal(stored.resolved_at, PLUS_TWO_MINUTES);
+});
+
 test('failureThreshold one opens an incident on the first failure', async (t) => {
   const { store } = await fixture(t);
   const manager = createIncidentManager({

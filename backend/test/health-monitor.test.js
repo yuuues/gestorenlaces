@@ -185,6 +185,54 @@ test('failed Teams delivery records an undelivered attempt', async () => {
   ]);
 });
 
+test('dispatches independent Teams notifications concurrently', async () => {
+  const deliveryGates = [deferred(), deferred()];
+  const sends = [];
+  const monitor = makeMonitor({
+    listServers: async () => [serverA, serverB],
+    check: async (server) => (server.id === 1 ? okA : errorB),
+    incidentManager: {
+      record: async (result) => {
+        const resultIncident = {
+          ...incident,
+          id: result.serverId,
+          server_id: result.serverId
+        };
+        return {
+          incident: resultIncident,
+          notification: {
+            type: 'opened',
+            incident: resultIncident,
+            server: {
+              id: result.serverId,
+              name: result.name,
+              url: result.url
+            }
+          }
+        };
+      },
+      markDelivery: async (id) => ({
+        ...incident,
+        id,
+        server_id: id
+      })
+    },
+    notifier: {
+      send: (notification) => {
+        sends.push(notification.server.id);
+        return deliveryGates[sends.length - 1].promise;
+      }
+    }
+  });
+
+  const running = monitor.runNow();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(sends.sort(), [1, 2]);
+  deliveryGates.forEach((gate) => gate.resolve({ delivered: true }));
+  await running;
+});
+
 test('start runs immediately and schedules the next round after completion', async () => {
   const timers = [];
   const monitor = makeMonitor({
@@ -233,9 +281,39 @@ test('catalog failures are reported without rejecting the run', async () => {
     }
   });
 
-  await monitor.runNow();
+  await monitor.start();
 
   assert.equal(monitor.getStatus().running, false);
+  assert.equal(monitor.getStatus().state, 'degraded');
   assert.equal(monitor.getStatus().lastError, 'database unavailable');
   assert.match(messages[0], /database unavailable/);
+});
+
+test('catalog mutations wait for an active round and trigger a fresh round', async () => {
+  const firstCheck = deferred();
+  let checks = 0;
+  let mutated = false;
+  const monitor = makeMonitor({
+    check: async () => {
+      checks += 1;
+      if (checks === 1) return firstCheck.promise;
+      return okA;
+    }
+  });
+
+  const running = monitor.runNow();
+  await Promise.resolve();
+  const mutation = monitor.mutateCatalog(async () => {
+    mutated = true;
+  });
+  await Promise.resolve();
+
+  assert.equal(mutated, false);
+  firstCheck.resolve(okA);
+  await running;
+  await mutation;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(mutated, true);
+  assert.equal(checks, 2);
 });

@@ -93,12 +93,6 @@ const registerRoutes = (
   db,
   { monitor, incidentManager, now, logger }
 ) => {
-  const refreshAfterWrite = () => {
-    Promise.resolve(monitor.runNow()).catch((error) => {
-      logger.error(`Health refresh after server update failed: ${error.message}`);
-    });
-  };
-
   app.get('/api/health/servers', async (_req, res) => {
     try {
       res.json(await dbAll(db, 'SELECT * FROM servers ORDER BY id'));
@@ -137,15 +131,16 @@ const registerRoutes = (
     }
 
     try {
-      const inserted = await dbRun(
-        db,
-        'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
-        [name, url, description || '']
-      );
-      const server = await dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
-        inserted.lastID
-      ]);
-      refreshAfterWrite();
+      const server = await monitor.mutateCatalog(async () => {
+        const inserted = await dbRun(
+          db,
+          'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
+          [name, url, description || '']
+        );
+        return dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
+          inserted.lastID
+        ]);
+      });
       return res.status(201).json(server);
     } catch (error) {
       return res.status(500).json({ error: error.message });
@@ -154,13 +149,6 @@ const registerRoutes = (
 
   app.put('/api/health/servers/:id', requireAuth, async (req, res) => {
     try {
-      const current = await dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
-        req.params.id
-      ]);
-      if (!current) {
-        return res.status(404).json({ error: 'Server not found' });
-      }
-
       const updates = {};
       for (const field of ['name', 'url', 'description']) {
         if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -170,15 +158,26 @@ const registerRoutes = (
         return res.status(400).json({ error: 'No fields to update' });
       }
 
-      await dbRun(
-        db,
-        `UPDATE servers SET ${fields.map((field) => `${field} = ?`).join(', ')} WHERE id = ?`,
-        [...fields.map((field) => updates[field]), req.params.id]
-      );
-      const server = await dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
-        req.params.id
-      ]);
-      refreshAfterWrite();
+      const server = await monitor.mutateCatalog(async () => {
+        const current = await dbGet(
+          db,
+          'SELECT * FROM servers WHERE id = ?',
+          [req.params.id]
+        );
+        if (!current) return null;
+
+        await dbRun(
+          db,
+          `UPDATE servers SET ${fields.map((field) => `${field} = ?`).join(', ')} WHERE id = ?`,
+          [...fields.map((field) => updates[field]), req.params.id]
+        );
+        return dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
+          req.params.id
+        ]);
+      });
+      if (!server) {
+        return res.status(404).json({ error: 'Server not found' });
+      }
       return res.json(server);
     } catch (error) {
       return res.status(500).json({ error: error.message });
@@ -187,19 +186,24 @@ const registerRoutes = (
 
   app.delete('/api/health/servers/:id', requireAuth, async (req, res) => {
     try {
-      const server = await dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
-        req.params.id
-      ]);
+      const server = await monitor.mutateCatalog(async () => {
+        const current = await dbGet(
+          db,
+          'SELECT * FROM servers WHERE id = ?',
+          [req.params.id]
+        );
+        if (!current) return null;
+
+        await incidentManager.closeForRemovedServer(
+          current.id,
+          now().toISOString()
+        );
+        await dbRun(db, 'DELETE FROM servers WHERE id = ?', [current.id]);
+        return current;
+      });
       if (!server) {
         return res.status(404).json({ error: 'Server not found' });
       }
-
-      await incidentManager.closeForRemovedServer(
-        server.id,
-        now().toISOString()
-      );
-      await dbRun(db, 'DELETE FROM servers WHERE id = ?', [server.id]);
-      refreshAfterWrite();
       return res.json({ message: 'Server deleted successfully' });
     } catch (error) {
       return res.status(500).json({ error: error.message });

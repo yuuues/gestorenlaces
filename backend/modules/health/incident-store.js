@@ -134,7 +134,7 @@ const createIncidentStore = (db) => {
     now,
     { status = incident.status, openedAt = incident.opened_at } = {}
   ) => {
-    await run(
+    const updated = await run(
       db,
       `
         UPDATE health_incidents
@@ -143,7 +143,7 @@ const createIncidentStore = (db) => {
             last_failed_at = ?,
             consecutive_failures = ?,
             last_error = ?
-        WHERE id = ?
+        WHERE id = ? AND status = ?
       `,
       [
         status,
@@ -151,14 +151,15 @@ const createIncidentStore = (db) => {
         now,
         incident.consecutive_failures + 1,
         JSON.stringify(result.error),
-        incident.id
+        incident.id,
+        incident.status
       ]
     );
-    return getById(incident.id);
+    return updated.changes === 1 ? getById(incident.id) : null;
   };
 
   const openPending = async (incident, now) => {
-    await run(
+    const updated = await run(
       db,
       `
         UPDATE health_incidents
@@ -167,22 +168,22 @@ const createIncidentStore = (db) => {
       `,
       [now, incident.id]
     );
-    return getById(incident.id);
+    return updated.changes === 1 ? getById(incident.id) : null;
   };
 
   const resolve = async (incident, now, reason) => {
-    await run(
+    const updated = await run(
       db,
       `
         UPDATE health_incidents
         SET status = 'resolved',
             resolved_at = ?,
             resolution_reason = ?
-        WHERE id = ?
+        WHERE id = ? AND status = 'open'
       `,
       [now, reason, incident.id]
     );
-    return getById(incident.id);
+    return updated.changes === 1 ? getById(incident.id) : null;
   };
 
   const deletePending = (id) =>
