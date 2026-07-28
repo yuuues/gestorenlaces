@@ -1,72 +1,151 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { checkServersHealth, getServers, deleteServer } from '../api';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  getHealthStatus,
+  getHealthIncidents,
+  getServers,
+  triggerHealthCheck,
+  deleteServer
+} from '../api';
 import { useEditMode } from '../EditModeContext';
 import ServerForm from './ServerForm';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheckCircle, faTimesCircle, faSync, faChevronDown, faChevronUp, faPlay, faPause, faPenToSquare, faTrash, faPlus } from '@fortawesome/free-solid-svg-icons';
+import {
+  faBolt,
+  faCheckCircle,
+  faChevronDown,
+  faChevronUp,
+  faPenToSquare,
+  faPlus,
+  faSync,
+  faTimesCircle,
+  faTrash
+} from '@fortawesome/free-solid-svg-icons';
 import './ServerHealth.css';
 
+const EMPTY_STATUS = {
+  state: 'stopped',
+  started: false,
+  running: false,
+  lastRunAt: null,
+  nextRunAt: null,
+  lastError: null,
+  servers: {}
+};
+
+const formatTimestamp = (value) => {
+  if (!value) return 'Pendiente';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString('es-ES');
+};
+
+const formatDuration = (incident) => {
+  if (!incident?.first_failed_at) return null;
+  const start = Date.parse(incident.first_failed_at);
+  const end = Date.parse(
+    incident.resolved_at || incident.last_failed_at || incident.first_failed_at
+  );
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  const minutes = Math.max(0, Math.round((end - start) / 60000));
+  return minutes < 1 ? 'menos de un minuto' : `${minutes} min`;
+};
+
 const ServerHealth = () => {
-  const [serverStatus, setServerStatus] = useState({});
+  const [monitorStatus, setMonitorStatus] = useState(EMPTY_STATUS);
+  const [incidents, setIncidents] = useState([]);
+  const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [expandedComponents, setExpandedComponents] = useState({});
-  const [refreshInterval, setRefreshInterval] = useState(30);
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
-  const intervalRef = useRef(null);
-  const { editMode, lock } = useEditMode();
-  const [servers, setServers] = useState([]);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const { editMode, lock } = useEditMode();
 
-  // Note: this intentionally does NOT toggle `loading` on every call. `loading`
-  // is only true for the very first load (initial useState); refreshes (manual
-  // or auto) reuse the existing view so it doesn't flash "Loading..." each time.
-  const fetchServerHealth = async () => {
-    setError(null);
+  const loadDashboard = useCallback(async () => {
     try {
-      const response = await checkServersHealth();
-      setServerStatus(response.data);
+      const [statusResponse, incidentsResponse] = await Promise.all([
+        getHealthStatus(),
+        getHealthIncidents(20)
+      ]);
+      setMonitorStatus(statusResponse.data || EMPTY_STATUS);
+      setIncidents(incidentsResponse.data || []);
+      setError(null);
     } catch (err) {
-      // Si el error tiene respuesta, podría ser un error controlado del backend
-      if (err.response && err.response.data && typeof err.response.data === 'object' && !err.response.data.error) {
-        setServerStatus(err.response.data);
-      } else {
-        const errorMessage = err.message || 'Failed to fetch server health status. Please try again later.';
-        setError(errorMessage);
-        console.error('Error fetching server health:', err);
-      }
+      setError(
+        err.response?.data?.error ||
+          err.message ||
+          'No se pudo consultar el monitor.'
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadServers = async () => {
+  const loadServers = useCallback(async () => {
     try {
       const response = await getServers();
-      setServers(response.data);
+      setServers(response.data || []);
     } catch (err) {
       console.error('Error fetching servers:', err);
     }
+  }, []);
+
+  useEffect(() => {
+    loadDashboard();
+    loadServers();
+    const visualRefresh = setInterval(loadDashboard, 30000);
+    return () => clearInterval(visualRefresh);
+  }, [loadDashboard, loadServers]);
+
+  useEffect(() => {
+    const nextExpanded = {};
+    Object.entries(monitorStatus.servers || {}).forEach(
+      ([serverName, serverData]) => {
+        Object.entries(serverData.components || {}).forEach(
+          ([componentName, componentData]) => {
+            nextExpanded[`${serverName}-${componentName}`] =
+              componentData?.status !== 'ok';
+          }
+        );
+      }
+    );
+    setExpandedComponents(nextExpanded);
+  }, [monitorStatus]);
+
+  const toggleComponentExpansion = (serverName, componentName) => {
+    const key = `${serverName}-${componentName}`;
+    setExpandedComponents((current) => ({
+      ...current,
+      [key]: !current[key]
+    }));
   };
 
-  const openAdd = () => { setEditing(null); setFormOpen(true); };
-  const openEdit = (server) => { setEditing(server); setFormOpen(true); };
-  const handleSaved = () => {
+  const openAdd = () => {
+    setEditing(null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (server) => {
+    setEditing(server);
+    setFormOpen(true);
+  };
+
+  const handleSaved = async () => {
     setFormOpen(false);
     setEditing(null);
-    loadServers();
-    fetchServerHealth();
+    await Promise.all([loadServers(), loadDashboard()]);
   };
+
   const handleDelete = async (server) => {
     if (!window.confirm(`¿Borrar el servidor "${server.name}"?`)) return;
     try {
       await deleteServer(server.id);
-      loadServers();
-      fetchServerHealth();
+      await Promise.all([loadServers(), loadDashboard()]);
     } catch (err) {
-      if (err.response && err.response.status === 401) {
+      if (err.response?.status === 401) {
         lock();
         alert('Sesión de edición caducada. Vuelve a desbloquear.');
       } else {
@@ -75,236 +154,338 @@ const ServerHealth = () => {
     }
   };
 
-  // Initialize expanded state based on component status (error = expanded, ok = collapsed)
-  const initializeExpandedState = (data) => {
-    const expandedState = {};
-
-    if (data && typeof data === 'object') {
-      Object.entries(data).forEach(([serverName, serverData]) => {
-        if (serverData && serverData.components) {
-          Object.entries(serverData.components).forEach(([componentName, componentData]) => {
-            // Create a unique key for each component
-            const componentKey = `${serverName}-${componentName}`;
-            // Set to expanded if status is error, collapsed if ok
-            expandedState[componentKey] = componentData && componentData.status !== 'ok';
-          });
-        }
-      });
-    }
-
-    return expandedState;
-  };
-
-  // Toggle component expansion
-  const toggleComponentExpansion = (serverName, componentName) => {
-    const componentKey = `${serverName}-${componentName}`;
-    setExpandedComponents(prev => ({
-      ...prev,
-      [componentKey]: !prev[componentKey]
-    }));
-  };
-
-  // Toggle auto-refresh
-  const toggleAutoRefresh = () => {
-    setAutoRefreshEnabled(prev => !prev);
-  };
-
-  // Handle refresh interval change
-  const handleIntervalChange = (e) => {
-    const value = parseInt(e.target.value, 10);
-    if (value > 0) {
-      setRefreshInterval(value);
-    }
-  };
-
-  // Initial fetch on component mount
-  useEffect(() => {
-    fetchServerHealth();
-    loadServers();
-  }, []);
-
-  // Setup or clear interval based on autoRefreshEnabled state
-  useEffect(() => {
-    if (autoRefreshEnabled && refreshInterval > 0) {
-      // Clear any existing interval
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-
-      // Set new interval
-      intervalRef.current = setInterval(() => {
-        fetchServerHealth();
-      }, refreshInterval * 1000);
-
-      // Return cleanup function
-      return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-        }
-      };
-    } else if (!autoRefreshEnabled && intervalRef.current) {
-      // Clear interval when auto-refresh is disabled
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, [autoRefreshEnabled, refreshInterval]);
-
-  // Initialize expanded state when server status changes
-  useEffect(() => {
-    if (!loading && Object.keys(serverStatus).length > 0) {
-      setExpandedComponents(initializeExpandedState(serverStatus));
-    }
-  }, [serverStatus, loading]);
-
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchServerHealth();
+    await loadDashboard();
     setRefreshing(false);
   };
 
-  if (loading) {
-    return <div className="loading">Loading server health status...</div>;
-  }
+  const handleCheckNow = async () => {
+    setChecking(true);
+    try {
+      const response = await triggerHealthCheck();
+      setMonitorStatus(response.data || EMPTY_STATUS);
+      const incidentsResponse = await getHealthIncidents(20);
+      setIncidents(incidentsResponse.data || []);
+      setError(null);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        lock();
+        setError('Sesión de edición caducada. Vuelve a desbloquear.');
+      } else {
+        setError(
+          err.response?.data?.error ||
+            err.message ||
+            'No se pudo ejecutar la comprobación.'
+        );
+      }
+    } finally {
+      setChecking(false);
+    }
+  };
 
-  if (error) {
-    return <div className="error-message">{error}</div>;
+  const snapshotServers = monitorStatus.servers || {};
+  const monitorState =
+    monitorStatus.state ||
+    (monitorStatus.started
+      ? monitorStatus.lastError
+        ? 'degraded'
+        : 'active'
+      : 'stopped');
+  const visibleServers =
+    Object.keys(snapshotServers).length > 0
+      ? snapshotServers
+      : Object.fromEntries(
+          servers.map((server) => [
+            server.name,
+            {
+              serverId: server.id,
+              name: server.name,
+              url: server.url,
+              status: 'unknown',
+              components: {},
+              info: { connection: 'Pendiente de la primera comprobación' }
+            }
+          ])
+        );
+
+  if (loading) {
+    return <div className="loading">Cargando estado del monitor...</div>;
   }
 
   return (
     <div className="server-health-container">
       <div className="server-health-header">
-        <h2>Server Health Status</h2>
+        <div>
+          <h2>Control de servicios</h2>
+          <p className="server-health-subtitle">
+            Vigilancia autónoma desde el backend
+          </p>
+        </div>
         <div className="refresh-controls">
           {editMode && (
-            <button className="add-button" onClick={openAdd}>
-              <FontAwesomeIcon icon={faPlus} /> Añadir servidor
-            </button>
+            <>
+              <button className="add-button" onClick={openAdd}>
+                <FontAwesomeIcon icon={faPlus} /> Añadir servidor
+              </button>
+              <button
+                className="check-now-button"
+                onClick={handleCheckNow}
+                disabled={checking}
+              >
+                <FontAwesomeIcon icon={faBolt} />
+                {checking ? 'Comprobando...' : 'Comprobar ahora'}
+              </button>
+            </>
           )}
-          <div className="auto-refresh-container">
-            <label htmlFor="refreshInterval">Auto-refresh every:</label>
-            <input
-              id="refreshInterval"
-              type="number"
-              min="1"
-              value={refreshInterval}
-              onChange={handleIntervalChange}
-              className="refresh-interval-input"
-            />
-            <span className="seconds-label">seconds</span>
-          </div>
-          <button 
-            className={`auto-refresh-button ${autoRefreshEnabled ? 'active' : ''}`} 
-            onClick={toggleAutoRefresh}
-            title={autoRefreshEnabled ? "Disable auto-refresh" : "Enable auto-refresh"}
-          >
-            <FontAwesomeIcon icon={autoRefreshEnabled ? faPause : faPlay} /> 
-            {autoRefreshEnabled ? "Stop" : "Start"}
-          </button>
-          <button 
-            className="refresh-button" 
+          <button
+            className="refresh-button"
             onClick={handleRefresh}
             disabled={refreshing}
           >
-            <FontAwesomeIcon icon={faSync} spin={refreshing} /> Refresh
+            <FontAwesomeIcon icon={faSync} spin={refreshing} />
+            Actualizar vista
           </button>
         </div>
       </div>
 
-      {Object.keys(serverStatus).length === 0 ? (
-        <div className="no-servers">No servers configured. Please add servers to monitor.</div>
+      <section className="monitor-summary" aria-label="Estado del monitor">
+        <span
+          className={`monitor-badge ${monitorState}`}
+        >
+          {monitorStatus.running
+            ? 'Comprobando servicios'
+            : monitorState === 'degraded'
+              ? 'Monitor degradado'
+              : monitorState === 'active'
+              ? 'Monitor activo'
+              : 'Monitor no disponible'}
+        </span>
+        <span>
+          <strong>Última comprobación:</strong>{' '}
+          {formatTimestamp(monitorStatus.lastRunAt)}
+        </span>
+        <span>
+          <strong>Próxima comprobación:</strong>{' '}
+          {formatTimestamp(monitorStatus.nextRunAt)}
+        </span>
+      </section>
+
+      {error && <div className="error-message compact">{error}</div>}
+      {monitorStatus.lastError && (
+        <div className="error-message compact">
+          {monitorStatus.lastError}
+        </div>
+      )}
+
+      {Object.keys(visibleServers).length === 0 ? (
+        <div className="no-servers">
+          No hay servidores configurados para monitorizar.
+        </div>
       ) : (
         <div className="server-list">
-          {Object.entries(serverStatus).map(([serverName, serverData]) => (
-            <div key={serverName} className="server-card">
-              <div className="server-header">
-                <h3>{serverData.name}</h3>
-                <span className={`status-badge ${serverData.status === 'ok' ? 'status-ok' : 'status-error'}`}>
-                  <FontAwesomeIcon icon={serverData.status === 'ok' ? faCheckCircle : faTimesCircle} />
-                  {serverData.status === 'ok' ? 'OK' : 'Error'}
-                </span>
-                {editMode && (() => {
-                  const record = servers.find((s) => s.name === serverData.name);
-                  if (!record) return null;
-                  return (
-                    <span className="server-actions">
-                      <button className="icon-button" onClick={() => openEdit(record)} title="Editar">
-                        <FontAwesomeIcon icon={faPenToSquare} />
-                      </button>
-                      <button className="icon-button" onClick={() => handleDelete(record)} title="Borrar">
-                        <FontAwesomeIcon icon={faTrash} />
-                      </button>
+          {Object.entries(visibleServers).map(
+            ([serverName, serverData]) => {
+              const record = servers.find(
+                (server) =>
+                  server.id === serverData.serverId ||
+                  server.name === serverData.name
+              );
+              const storedIncident =
+                serverData.incident &&
+                serverData.incident.status !== 'pending'
+                  ? serverData.incident
+                  : incidents.find(
+                      (incident) =>
+                        incident.server_id === serverData.serverId
+                    );
+              const isOk = serverData.status === 'ok';
+              const isUnknown = serverData.status === 'unknown';
+
+              return (
+                <article key={serverName} className="server-card">
+                  <div className="server-header">
+                    <h3>{serverData.name}</h3>
+                    <span
+                      className={`status-badge ${
+                        isUnknown
+                          ? 'status-unknown'
+                          : isOk
+                            ? 'status-ok'
+                            : 'status-error'
+                      }`}
+                    >
+                      <FontAwesomeIcon
+                        icon={isOk ? faCheckCircle : faTimesCircle}
+                      />
+                      {isUnknown ? 'Pendiente' : isOk ? 'OK' : 'Error'}
                     </span>
-                  );
-                })()}
-              </div>
+                    {editMode && record && (
+                      <span className="server-actions">
+                        <button
+                          className="icon-button"
+                          onClick={() => openEdit(record)}
+                          title="Editar"
+                        >
+                          <FontAwesomeIcon icon={faPenToSquare} />
+                        </button>
+                        <button
+                          className="icon-button"
+                          onClick={() => handleDelete(record)}
+                          title="Borrar"
+                        >
+                          <FontAwesomeIcon icon={faTrash} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
 
-              <div className="server-info">
-                <p><strong>URL:</strong> {serverData.info?.url || 'N/A'}</p>
-                <p><strong>Connection:</strong> {serverData.info?.connection || 'N/A'}</p>
-              </div>
+                  <div className="server-info">
+                    <p>
+                      <strong>URL:</strong>{' '}
+                      {serverData.url || serverData.info?.url || 'N/A'}
+                    </p>
+                    <p>
+                      <strong>Conexión:</strong>{' '}
+                      {serverData.info?.connection || 'N/A'}
+                    </p>
+                    <p>
+                      <strong>Comprobado:</strong>{' '}
+                      {formatTimestamp(serverData.checkedAt)}
+                    </p>
+                  </div>
 
-              {serverData.components && Object.keys(serverData.components).length > 0 && (
-                <div className="server-components">
-                  <h4>Components</h4>
-                  {Object.entries(serverData.components).map(([componentName, componentData]) => (
-                    <div key={componentName} className="component-item">
-                      <div 
-                        className="component-header" 
-                        onClick={() => toggleComponentExpansion(serverName, componentName)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <span className="component-name">{componentData.name}</span>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <span className={`status-badge ${componentData.status === 'ok' ? 'status-ok' : 'status-error'}`}>
-                            <FontAwesomeIcon icon={componentData.status === 'ok' ? faCheckCircle : faTimesCircle} />
-                            {componentData.status === 'ok' ? 'OK' : 'Error'}
-                          </span>
-                          <FontAwesomeIcon 
-                            icon={expandedComponents[`${serverName}-${componentName}`] ? faChevronUp : faChevronDown} 
-                            style={{ marginLeft: '8px', fontSize: '12px' }}
-                          />
-                        </div>
-                      </div>
-                      <div 
-                        className="component-content"
-                        style={{ 
-                          maxHeight: expandedComponents[`${serverName}-${componentName}`] ? '500px' : '0',
-                          opacity: expandedComponents[`${serverName}-${componentName}`] ? 1 : 0,
-                          padding: expandedComponents[`${serverName}-${componentName}`] ? '0 0' : '0',
-                          marginTop: expandedComponents[`${serverName}-${componentName}`] ? '0px' : '0'
-                        }}
-                      >
-                        {componentData.info && (
-                          <div className="component-info">
-                            {Object.entries(componentData.info).map(([key, value]) => (
-                              <p key={key}><strong>{key}:</strong> {typeof value === 'object' ? (value?.message || JSON.stringify(value)) : String(value)}</p>
-                            ))}
-                          </div>
-                        )}
-                        {componentData.errors && componentData.errors.length > 0 && (
-                          <div className="component-errors">
-                            <h5>Errors</h5>
-                            <ul>
-                              {componentData.errors.map((error, index) => (
-                                <li key={index}>{typeof error === 'string' ? error : (error && error.message) ? error.message : JSON.stringify(error)}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
+                  {storedIncident && (
+                    <div
+                      className={`incident-summary ${
+                        storedIncident.status === 'resolved'
+                          ? 'resolved'
+                          : ''
+                      }`}
+                    >
+                      <h4>
+                        {storedIncident.status === 'open'
+                          ? 'Incidencia abierta'
+                          : 'Última incidencia resuelta'}
+                      </h4>
+                      <p>{storedIncident.last_error?.message}</p>
+                      <p>
+                        {storedIncident.consecutive_failures} fallos
+                        consecutivos
+                        {formatDuration(storedIncident)
+                          ? ` · ${formatDuration(storedIncident)}`
+                          : ''}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+                  )}
+
+                  {Object.keys(serverData.components || {}).length > 0 && (
+                    <div className="server-components">
+                      <h4>Componentes</h4>
+                      {Object.entries(serverData.components).map(
+                        ([componentName, componentData]) => {
+                          const key = `${serverName}-${componentName}`;
+                          const componentOk = componentData?.status === 'ok';
+                          return (
+                            <div key={componentName} className="component-item">
+                              <button
+                                type="button"
+                                className="component-header"
+                                onClick={() =>
+                                  toggleComponentExpansion(
+                                    serverName,
+                                    componentName
+                                  )
+                                }
+                              >
+                                <span className="component-name">
+                                  {componentData?.name || componentName}
+                                </span>
+                                <span className="component-status">
+                                  <span
+                                    className={`status-badge ${
+                                      componentOk
+                                        ? 'status-ok'
+                                        : 'status-error'
+                                    }`}
+                                  >
+                                    <FontAwesomeIcon
+                                      icon={
+                                        componentOk
+                                          ? faCheckCircle
+                                          : faTimesCircle
+                                      }
+                                    />
+                                    {componentOk ? 'OK' : 'Error'}
+                                  </span>
+                                  <FontAwesomeIcon
+                                    icon={
+                                      expandedComponents[key]
+                                        ? faChevronUp
+                                        : faChevronDown
+                                    }
+                                  />
+                                </span>
+                              </button>
+                              {expandedComponents[key] && (
+                                <div className="component-content">
+                                  {componentData?.info && (
+                                    <div className="component-info">
+                                      {Object.entries(componentData.info).map(
+                                        ([infoKey, value]) => (
+                                          <p key={infoKey}>
+                                            <strong>{infoKey}:</strong>{' '}
+                                            {typeof value === 'object'
+                                              ? value?.message ||
+                                                JSON.stringify(value)
+                                              : String(value)}
+                                          </p>
+                                        )
+                                      )}
+                                    </div>
+                                  )}
+                                  {componentData?.errors?.length > 0 && (
+                                    <div className="component-errors">
+                                      <h5>Errores</h5>
+                                      <ul>
+                                        {componentData.errors.map(
+                                          (componentError, index) => (
+                                            <li key={index}>
+                                              {typeof componentError ===
+                                              'string'
+                                                ? componentError
+                                                : componentError?.message ||
+                                                  JSON.stringify(
+                                                    componentError
+                                                  )}
+                                            </li>
+                                          )
+                                        )}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  )}
+                </article>
+              );
+            }
+          )}
         </div>
       )}
 
       {formOpen && (
         <ServerForm
           server={editing}
-          onClose={() => { setFormOpen(false); setEditing(null); }}
+          onClose={() => {
+            setFormOpen(false);
+            setEditing(null);
+          }}
           onSaved={handleSaved}
         />
       )}

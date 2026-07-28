@@ -1,280 +1,300 @@
-const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
-const { sendSystemNotification } = require('../../notify');
 const { requireAuth } = require('../../auth');
 const schema = require('../../schema');
+const { checkServer } = require('./checker');
+const { readHealthConfig } = require('./config');
+const { createIncidentStore } = require('./incident-store');
+const { createIncidentManager } = require('./incident-manager');
+const { createTeamsNotifier } = require('./teams-notifier');
+const { createHealthMonitor } = require('./monitor');
 
-// Store last notification times for each server
-const lastNotificationTimes = {};
+const dbRun = (db, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(error) {
+      if (error) reject(error);
+      else resolve({ lastID: this.lastID, changes: this.changes });
+    });
+  });
 
-// Initialize the health module
-exports.initialize = (app, db) => {
-  console.log('Initializing health module...');
+const dbGet = (db, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.get(sql, params, (error, row) => {
+      if (error) reject(error);
+      else resolve(row || null);
+    });
+  });
 
-  // Create servers table if it doesn't exist
-  db.serialize(() => {
-    db.run(`
+const dbAll = (db, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.all(sql, params, (error, rows) => {
+      if (error) reject(error);
+      else resolve(rows);
+    });
+  });
+
+const seedServersIfEmpty = async (db, logger) => {
+  const row = await dbGet(db, 'SELECT COUNT(*) AS count FROM servers');
+  if (row.count !== 0) {
+    logger.info('Servers table already has data.');
+    return;
+  }
+
+  const jsonPath = path.join(
+    __dirname,
+    '..',
+    '..',
+    '..',
+    'json',
+    'servers.json'
+  );
+  if (!fs.existsSync(jsonPath)) {
+    logger.info('Servers JSON file not found.');
+    return;
+  }
+
+  const servers = JSON.parse(await fs.promises.readFile(jsonPath, 'utf8'));
+  for (const server of servers) {
+    await dbRun(
+      db,
+      'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
+      [server.name, server.url, server.description || '']
+    );
+  }
+  logger.info('Servers loaded from JSON file.');
+};
+
+const prepareServers = async (db, logger) => {
+  await dbRun(
+    db,
+    `
       CREATE TABLE IF NOT EXISTS servers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
         url TEXT NOT NULL,
         description TEXT
       )
-    `);
-  });
-
-  // Reconcile columns added in later versions before seeding, then load servers
-  // from JSON if the table is empty.
-  schema.ensureColumns(db, 'servers', [{ name: 'description', definition: 'TEXT' }])
-    .catch((err) => console.error('Schema reconcile (servers) failed:', err))
-    .finally(() => loadServersFromJson(db));
-
-  // Register routes
-  registerRoutes(app, db);
-
-  console.log('Health module initialized successfully.');
+    `
+  );
+  await schema.ensureColumns(db, 'servers', [
+    { name: 'description', definition: 'TEXT' }
+  ]);
+  await seedServersIfEmpty(db, logger);
 };
 
-// Load servers from JSON file
-const loadServersFromJson = (db) => {
-  db.get('SELECT COUNT(*) as count FROM servers', (err, row) => {
-    if (err) {
-      console.error('Error checking servers table:', err);
-      return;
-    }
-
-    // If table is empty, import from JSON
-    if (row.count === 0) {
-      const jsonPath = path.join(__dirname, '..', '..', '..', 'json', 'servers.json');
-
-      if (fs.existsSync(jsonPath)) {
-        try {
-          const serversData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-          const stmt = db.prepare('INSERT INTO servers (name, url, description) VALUES (?, ?, ?)');
-
-          serversData.forEach(server => {
-            stmt.run(
-              server.name,
-              server.url,
-              server.description || ''
-            );
-          });
-
-          stmt.finalize();
-          console.log('Servers loaded from JSON file.');
-        } catch (error) {
-          console.error('Error importing servers from JSON:', error);
-        }
-      } else {
-        console.log('Servers JSON file not found.');
-      }
-    } else {
-      console.log('Servers table already has data.');
-    }
-  });
+const safeIncidentLimit = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) return 20;
+  return Math.min(100, Math.max(1, parsed));
 };
 
-// Register API routes
-const registerRoutes = (app, db) => {
-  // Get all servers
-  app.get('/api/health/servers', (req, res) => {
-    db.all('SELECT * FROM servers', (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    });
-  });
-
-  // Check health of all servers
-  app.get('/api/health/check', async (req, res) => {
+const registerRoutes = (
+  app,
+  db,
+  { monitor, incidentManager, now, logger }
+) => {
+  app.get('/api/health/servers', async (_req, res) => {
     try {
-      // Get all servers from database
-      db.all('SELECT * FROM servers', async (err, servers) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-
-        const currentTime = Date.now();
-        const minTimeBetweenNotifications = 300 * 1000; // 300 seconds in milliseconds
-
-        // Only notify about a server's error state once per interval.
-        const notifyOnce = (serverName, title, message) => {
-          const lastNotificationTime = lastNotificationTimes[serverName] || 0;
-          if (currentTime - lastNotificationTime >= minTimeBetweenNotifications) {
-            sendSystemNotification(title, message);
-            lastNotificationTimes[serverName] = currentTime;
-          }
-        };
-
-        // Check all servers concurrently so total time is bounded by the
-        // slowest server, not the sum of all of them.
-        const checkOne = async (server) => {
-          try {
-            const response = await checkServerHealth(server.url);
-            const isOk = response.status === 200;
-            const data = response.data || {};
-
-            const entry = {
-              name: server.name,
-              status: isOk ? 'ok' : 'error',
-              components: data.components || (data.status ? data : {}),
-              info: {
-                url: server.url,
-                connection: isOk
-                  ? `Conexión validada y recibido código ${response.status} ok!`
-                  : `Servidor respondió con código ${response.status}, posiblemente con errores en componentes.`
-              }
-            };
-
-            // If status is error, send notification if enough time has passed
-            if (!isOk) {
-              // Collect detailed error message from components if available
-              let detail = '';
-              if (data.components) {
-                const errorComponents = Object.values(data.components)
-                  .filter(c => c.status !== 'ok')
-                  .map(c => c.name || 'Componente desconocido');
-                if (errorComponents.length > 0) {
-                  detail = ` Componentes en error: ${errorComponents.join(', ')}`;
-                }
-              }
-
-              notifyOnce(
-                server.name,
-                `${server.name}: Estado Crítico`,
-                `El servidor ha devuelto un código de error: ${response.status}.${detail}`
-              );
-            }
-
-            return [server.name, entry];
-          } catch (error) {
-            notifyOnce(
-              server.name,
-              `${server.name}: Error de Conexión`,
-              `Error al conectar con el servidor: ${error.message}`
-            );
-
-            return [server.name, {
-              name: server.name,
-              status: 'error',
-              components: {},
-              info: {
-                url: server.url,
-                connection: `Error de conexión: ${error.message}`
-              },
-              errors: [error.message]
-            }];
-          }
-        };
-
-        const entries = await Promise.all(servers.map(checkOne));
-        res.json(Object.fromEntries(entries));
-      });
+      res.json(await dbAll(db, 'SELECT * FROM servers ORDER BY id'));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Add a new server
-  app.post('/api/health/servers', requireAuth, (req, res) => {
-    const { name, url, description } = req.body;
+  const sendStatus = (_req, res) => res.json(monitor.getStatus());
+  app.get('/api/health/status', sendStatus);
+  app.get('/api/health/check', sendStatus);
 
+  app.get('/api/health/incidents', async (req, res) => {
+    try {
+      const incidents = await incidentManager.listRecent(
+        safeIncidentLimit(req.query.limit)
+      );
+      res.json(incidents);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/health/check', requireAuth, async (_req, res) => {
+    try {
+      res.json(await monitor.runNow());
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/health/servers', requireAuth, async (req, res) => {
+    const { name, url, description } = req.body;
     if (!name || !url) {
       return res.status(400).json({ error: 'Name and URL are required' });
     }
 
-    const sql = 'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)';
-    db.run(sql, [name, url, description || ''], function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-
-      db.get('SELECT * FROM servers WHERE id = ?', [this.lastID], (err, row) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-        res.status(201).json(row);
+    try {
+      const server = await monitor.mutateCatalog(async () => {
+        const inserted = await dbRun(
+          db,
+          'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
+          [name, url, description || '']
+        );
+        return dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
+          inserted.lastID
+        ]);
       });
-    });
+      return res.status(201).json(server);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
   });
 
-  // Update a server
-  app.put('/api/health/servers/:id', requireAuth, (req, res) => {
-    const { id } = req.params;
-    const { name, url, description } = req.body;
-
-    db.get('SELECT * FROM servers WHERE id = ?', [id], (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-
-      if (!row) {
-        return res.status(404).json({ error: 'Server not found' });
-      }
-
+  app.put('/api/health/servers/:id', requireAuth, async (req, res) => {
+    try {
       const updates = {};
-      if (name !== undefined) updates.name = name;
-      if (url !== undefined) updates.url = url;
-      if (description !== undefined) updates.description = description;
-
-      const fields = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-      const values = Object.values(updates);
-
-      if (values.length === 0) {
+      for (const field of ['name', 'url', 'description']) {
+        if (req.body[field] !== undefined) updates[field] = req.body[field];
+      }
+      const fields = Object.keys(updates);
+      if (fields.length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
       }
 
-      const sql = `UPDATE servers SET ${fields} WHERE id = ?`;
+      const server = await monitor.mutateCatalog(async () => {
+        const current = await dbGet(
+          db,
+          'SELECT * FROM servers WHERE id = ?',
+          [req.params.id]
+        );
+        if (!current) return null;
 
-      db.run(sql, [...values, id], function(err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-
-        db.get('SELECT * FROM servers WHERE id = ?', [id], (err, row) => {
-          if (err) {
-            return res.status(500).json({ error: err.message });
-          }
-          res.json(row);
-        });
+        await dbRun(
+          db,
+          `UPDATE servers SET ${fields.map((field) => `${field} = ?`).join(', ')} WHERE id = ?`,
+          [...fields.map((field) => updates[field]), req.params.id]
+        );
+        return dbGet(db, 'SELECT * FROM servers WHERE id = ?', [
+          req.params.id
+        ]);
       });
-    });
-  });
-
-  // Delete a server
-  app.delete('/api/health/servers/:id', requireAuth, (req, res) => {
-    const { id } = req.params;
-
-    db.run('DELETE FROM servers WHERE id = ?', [id], function(err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-
-      if (this.changes === 0) {
+      if (!server) {
         return res.status(404).json({ error: 'Server not found' });
       }
+      return res.json(server);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  });
 
-      res.json({ message: 'Server deleted successfully' });
+  app.delete('/api/health/servers/:id', requireAuth, async (req, res) => {
+    try {
+      const server = await monitor.mutateCatalog(async () => {
+        const current = await dbGet(
+          db,
+          'SELECT * FROM servers WHERE id = ?',
+          [req.params.id]
+        );
+        if (!current) return null;
+
+        await incidentManager.closeForRemovedServer(
+          current.id,
+          now().toISOString()
+        );
+        await dbRun(db, 'DELETE FROM servers WHERE id = ?', [current.id]);
+        return current;
+      });
+      if (!server) {
+        return res.status(404).json({ error: 'Server not found' });
+      }
+      return res.json({ message: 'Server deleted successfully' });
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  });
+};
+
+const createHealthModule = (app, db, overrides = {}) => {
+  const logger = overrides.logger || console;
+  const now = overrides.now || (() => new Date());
+  const config =
+    overrides.config || readHealthConfig(overrides.env || process.env, logger);
+  const incidentStore =
+    overrides.incidentStore || createIncidentStore(db);
+  const incidentManager =
+    overrides.incidentManager ||
+    createIncidentManager({
+      store: incidentStore,
+      failureThreshold: config.failureThreshold,
+      reminderMs: config.reminderMs
     });
+  const notifier =
+    overrides.notifier ||
+    createTeamsNotifier({
+      webhookUrl: config.teamsWebhookUrl,
+      httpClient: overrides.teamsHttpClient,
+      timeoutMs: config.timeoutMs,
+      logger
+    });
+  const listServers =
+    overrides.listServers ||
+    (() => dbAll(db, 'SELECT * FROM servers ORDER BY id'));
+  const check =
+    overrides.check ||
+    ((server, options) =>
+      checkServer(server, {
+        ...options,
+        httpClient: overrides.healthHttpClient
+      }));
+  const monitor =
+    overrides.monitor ||
+    createHealthMonitor({
+      listServers,
+      check,
+      incidentManager,
+      notifier,
+      intervalMs: config.intervalMs,
+      timeoutMs: config.timeoutMs,
+      now,
+      logger
+    });
+
+  registerRoutes(app, db, {
+    monitor,
+    incidentManager,
+    now,
+    logger
   });
+
+  const ready = (async () => {
+    await prepareServers(db, logger);
+    await incidentStore.ensureSchema();
+    await monitor.start();
+  })();
+
+  return {
+    monitor,
+    ready,
+    incidentStore,
+    incidentManager,
+    notifier,
+    config
+  };
 };
 
-// Function to check server health
-const checkServerHealth = async (url) => {
-  // Accept any HTTP status without throwing: this is a health monitor, so a
-  // 4xx/5xx is a valid "response received" that we classify ourselves (only
-  // 200 counts as ok). Network errors (timeout, DNS, refused) still throw.
-  return axios.get(url, {
-    timeout: 5000,
-    validateStatus: () => true
-  });
+exports.initialize = (app, db) => {
+  console.log('Initializing health module...');
+  const healthModule = createHealthModule(app, db);
+  healthModule.ready
+    .then(() => console.log('Health module initialized successfully.'))
+    .catch((error) => {
+      console.error(`Health module initialization failed: ${error.message}`);
+    });
+  return healthModule;
 };
 
-// Export routes for module info
+exports.createHealthModule = createHealthModule;
 exports.routes = [
   { path: '/api/health/servers', methods: ['GET', 'POST'] },
   { path: '/api/health/servers/:id', methods: ['PUT', 'DELETE'] },
-  { path: '/api/health/check', methods: ['GET'] }
+  { path: '/api/health/status', methods: ['GET'] },
+  { path: '/api/health/incidents', methods: ['GET'] },
+  { path: '/api/health/check', methods: ['GET', 'POST'] }
 ];
