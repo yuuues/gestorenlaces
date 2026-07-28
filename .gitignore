@@ -143,3 +143,4 @@ json/servers.json
 .env
 mcp-list/*
 .worktrees/
+worktrees/
