@@ -43,12 +43,14 @@ To add a backend feature as a module, create `backend/modules/<name>/index.js` e
 
 **Tracked vs. runtime data files (important).** `.gitignore` excludes the runtime files `json/bookmarks.json`, `json/servers.json`, the whole `mcp-list/` directory, `backend/bookmarks.db`, and `frontend/build`. Only the `*.base.json` templates (`json/bookmarks.base.json`, `json/servers.base.json`) are committed. The runtime `.json` files are local working copies derived from the `.base.json` templates — when changing seed data, edit the committed `.base.json` and copy it to the runtime name locally. Do not expect `mcp-list/` contents or the DB to be in git.
 
-**Frontend.** Create-React-App. `src/App.js` holds all top-level state and switches between the three views via a `currentView` string (no router). Components live in `src/components/` (`CategoryNav`, `BookmarkList`, `ServerHealth`, `McpList`), each with a sibling `.css`. `src/api.js` centralizes axios calls, but `App.js` and some components also call `axios` directly against `/api/...` — match whichever pattern the file already uses. Icons come from FontAwesome.
+**Frontend.** Create-React-App with `react-router-dom`; `src/App.js` defines the canonical routes for Bookmarks, Server Health, and MCPs. Components live in `src/components/` (`CategoryNav`, `BookmarkList`, `ServerHealth`, `McpList`), each with a sibling `.css`. `src/api.js` centralizes axios calls. Icons come from FontAwesome.
 
-**Health module specifics** (`backend/modules/health/index.js`):
-- `GET /api/health/check` fetches each server's URL (axios, 5s timeout) and treats HTTP 200 as `ok`; it reads a `components` object from the response body to report per-component status.
-- On error states it fires an OS notification, rate-limited per server to once per 300s (`lastNotificationTimes`).
-- Notifications use Windows toast via a PowerShell command, `notify-send` on Linux, and fall back to `console.log` otherwise. `backend/test-notification.js` is a standalone script to test the Windows toast.
+**Health module specifics** (`backend/modules/health/`):
+- The backend monitor runs independently of the browser, checks configured servers concurrently every 60s by default, and uses a 5s request timeout.
+- HTTP/network failures, a non-`ok` top-level status, or any non-`ok` component count as failures. Two consecutive failures open an incident.
+- SQLite stores only provisional/confirmed incidents, one row per incident; successful check history is not persisted.
+- Teams Workflows receives the initial alert, 15-minute reminders, and recovery through the secret `TEAMS_HEALTH_WEBHOOK_URL`.
+- `GET /api/health/status` is side-effect free, while admin-protected `POST /api/health/check` forces an immediate round. Legacy `GET /api/health/check` is a read alias.
 
 **MCP catalog** (routes in `server.js`): reads `mcp-list/data.json` for the list, and serves per-folder `readme.md` / file listings / downloads from `mcp-list/<folder>/`. File downloads are path-guarded to stay within the requested folder.
 
@@ -56,4 +58,4 @@ To add a backend feature as a module, create `backend/modules/<name>/index.js` e
 
 - Endpoints respond with `{ error: message }` and an appropriate HTTP status on failure; success returns the affected row(s) or a `{ message }` confirmation.
 - Bookmark required fields: `category`, `short_description`, `link`. Server required fields: `name` (unique), `url`.
-- Requires Node 18+. Native OS notifications are Windows-only (others fall back to console).
+- Requires Node 18+. Teams notifications require outbound HTTPS access to the configured Workflow URL.
