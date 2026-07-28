@@ -32,7 +32,12 @@ export const deleteBookmark = (id) => api.delete(`/api/bookmarks/${id}`);
 
 // Server Health API functions
 export const getServers = () => api.get('/api/health/servers');
-export const checkServersHealth = () => api.get('/api/health/check');
+export const getHealthStatus = () => api.get('/api/health/status');
+export const getHealthIncidents = (limit = 20) =>
+  api.get(`/api/health/incidents?limit=${encodeURIComponent(limit)}`);
+export const triggerHealthCheck = () => api.post('/api/health/check');
+// Compatibility for consumers that still use the previous read helper.
+export const checkServersHealth = getHealthStatus;
 export const createServer = (server) => api.post('/api/health/servers', server);
 export const updateServer = (id, server) => api.put(`/api/health/servers/${id}`, server);
 export const deleteServer = (id) => api.delete(`/api/health/servers/${id}`);
