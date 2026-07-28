@@ -11,9 +11,10 @@ Aplicación web para gestionar enlaces (bookmarks) organizada por categorías, c
 - Sistema de módulos del backend con autocarga y protección por contraseña para rutas de configuración.
 - Módulo de salud de servidores (Health):
   - Alta/edición/baja de servidores a monitorizar.
-  - Comprobación periódica del estado de cada servidor (endpoint `/health` de cada servicio monitorizado).
-  - Notificaciones locales en Windows cuando un servidor cambia de estado (fallback a consola si falla la notificación).
-- Vista de salud de servidores en el frontend con refresco manual y auto‑refresco configurable.
+  - Comprobación autónoma cada 60 segundos aunque la web esté cerrada.
+  - Incidencias confirmadas tras dos fallos consecutivos, con recordatorios cada 15 minutos y aviso de recuperación.
+  - Notificaciones en un canal de Microsoft Teams mediante Teams Workflows.
+- Vista de salud con estado del monitor, última/próxima ronda, incidencias y detalle por componente.
 - Listado y exploración de MCPs (Model Context Protocol) con API para leer readme y descargar ficheros.
 - El backend compila y sirve el frontend automáticamente si no existe el build.
 - Despliegue sencillo con PM2 mediante `ecosystem.config.js`.
@@ -64,13 +65,26 @@ Crear un fichero `.env` en la raíz del proyecto o en `backend/` (el servidor ca
 
 - `PORT` (opcional): Puerto del backend. Por defecto `5000`.
 - `ADMIN_KEY` (requerido para gestionar datos desde la web): clave estática que protege las rutas de escritura (alta/edición/borrado de enlaces y servidores). Si no está configurada, las escrituras quedan deshabilitadas ("fail closed") y devuelven `503`; las rutas de lectura siguen siendo públicas.
+- `HEALTH_CHECK_INTERVAL_SECONDS` (opcional, default `60`): frecuencia de comprobación.
+- `HEALTH_FAILURE_THRESHOLD` (opcional, default `2`): fallos consecutivos necesarios para abrir una incidencia.
+- `HEALTH_REMINDER_MINUTES` (opcional, default `15`): frecuencia máxima de recordatorios mientras continúa el fallo.
+- `HEALTH_REQUEST_TIMEOUT_MS` (opcional, default `5000`): timeout por endpoint de salud.
+- `TEAMS_HEALTH_WEBHOOK_URL`: URL secreta generada por Teams Workflows para publicar avisos en el canal.
 
 Ejemplo:
 
 ```
 PORT=5000
 ADMIN_KEY=tu-clave-secreta
+HEALTH_CHECK_INTERVAL_SECONDS=60
+HEALTH_FAILURE_THRESHOLD=2
+HEALTH_REMINDER_MINUTES=15
+HEALTH_REQUEST_TIMEOUT_MS=5000
+TEAMS_HEALTH_WEBHOOK_URL=https://prod-xx.westeurope.logic.azure.com/...
 ```
+
+La URL de Teams es un secreto: debe vivir solo en `.env`, que ya está excluido
+de Git.
 
 ## Autenticación
 
@@ -180,13 +194,33 @@ Rutas del módulo `health`:
 - `POST /api/health/servers` — Crea un servidor a monitorizar. Body JSON: `{ name, url, description }`.
 - `PUT /api/health/servers/:id` — Actualiza un servidor.
 - `DELETE /api/health/servers/:id` — Elimina un servidor.
-- `GET /api/health/check` — Ejecuta el chequeo de salud contra todos los servidores y devuelve un objeto con estados y componentes.
+- `GET /api/health/status` — Devuelve la última instantánea y el estado del monitor sin ejecutar comprobaciones.
+- `GET /api/health/incidents?limit=20` — Lista solo incidencias confirmadas; no contiene chequeos correctos.
+- `GET /api/health/check` — Alias compatible y sin efectos secundarios de `/api/health/status`.
+- `POST /api/health/check` — Fuerza una ronda inmediata; requiere `x-admin-key`.
 
 Inicialización: si la tabla `servers` está vacía, se importan datos desde `json/servers.json`.
 
 Notas:
-- Las notificaciones locales en Windows se envían vía PowerShell cuando hay cambios de estado.
-- El frontend ofrece vista dedicada con auto‑refresco configurable y expansión automática de componentes en error.
+- El backend controla la vigilancia. Cerrar la pestaña o pulsar “Actualizar vista” no detiene ni ejecuta el monitor.
+- Un HTTP `200` también se considera fallo si el estado global o cualquier componente es distinto de `ok`.
+- Un fallo aislado se descarta. El segundo fallo consecutivo abre una incidencia y publica en Teams.
+- Mientras continúe, se recuerda cada 15 minutos; la primera comprobación correcta publica la recuperación.
+- SQLite guarda una fila por incidencia, actualizada durante el fallo. No almacena el histórico de resultados correctos.
+- Si Teams no responde, la entrega se reintenta sin detener las comprobaciones.
+
+#### Configurar el canal de Teams
+
+1. En Microsoft Teams, abre **Workflows** y crea un flujo con el disparador
+   **“When a Teams webhook request is received”**.
+2. Añade la acción que publica el mensaje o tarjeta en un canal y selecciona el
+   equipo y canal de destino.
+3. Guarda el flujo y copia la URL HTTP generada.
+4. Pega la URL en `TEAMS_HEALTH_WEBHOOK_URL` dentro de `.env`.
+5. Reinicia el backend; con PM2: `pm2 restart gestor --update-env`.
+
+Usa Teams Workflows en lugar de crear un conector clásico “Incoming Webhook”.
+Para continuidad operativa, asigna al menos un copropietario al Workflow.
 
 ### MCPs (Model Context Protocol)
 
@@ -203,7 +237,7 @@ En el frontend existe una pestaña “MCPs” que consume estas APIs para explor
 
 La UI usa `react-router-dom`, por lo que cada vista tiene una URL canónica enlazable:
 - `/` — Bookmarks: listado filtrable por texto con categorías en la barra lateral.
-- `/health` — Server Health: monitor de salud de servicios con controles de refresco y detalle por componente.
+- `/health` — Server Health: estado del monitor autónomo, incidencias y detalle por componente.
 - `/mcps` — MCPs: exploración de los MCPs disponibles y lectura de su documentación.
 - `/mcps/:folder` — Deep-link al detalle de un MCP concreto (p.ej. `/mcps/sqlserver`); abre directamente su documentación. Si el `folder` no existe, se muestra "MCP no encontrado".
 
@@ -225,7 +259,7 @@ En `frontend/package.json`:
 ## Requisitos
 
 - Node.js 18+ recomendado.
-- Windows para notificaciones nativas del módulo de salud (en otros SO, la notificación hace fallback a consola).
+- Acceso saliente HTTPS desde el backend hacia la URL del Workflow de Teams.
 
 ## Licencia
 
