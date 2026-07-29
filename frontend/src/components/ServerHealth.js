@@ -370,6 +370,25 @@ const ServerHealth = () => {
                       </h4>
                       <p>{storedIncident.last_error?.message}</p>
                       <p>
+                        <strong>Inicio:</strong>{' '}
+                        {formatTimestamp(storedIncident.first_failed_at)}
+                      </p>
+                      <p>
+                        <strong>Fin:</strong>{' '}
+                        {storedIncident.status === 'resolved'
+                          ? formatTimestamp(storedIncident.resolved_at)
+                          : 'En curso'}
+                      </p>
+                      {Array.isArray(
+                        storedIncident.last_error?.components
+                      ) &&
+                        storedIncident.last_error.components.length > 0 && (
+                          <p>
+                            <strong>Subcheck:</strong>{' '}
+                            {storedIncident.last_error.components.join(', ')}
+                          </p>
+                        )}
+                      <p>
                         {storedIncident.consecutive_failures} fallos
                         consecutivos
                         {formatDuration(storedIncident)

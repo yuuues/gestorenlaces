@@ -178,6 +178,61 @@ test('shows the open incident stored for a server', async () => {
   expect(await screen.findByText('Incidencia abierta')).toBeInTheDocument();
   expect(screen.getByText('Components failed: Database')).toBeInTheDocument();
   expect(screen.getByText(/16 fallos consecutivos/)).toBeInTheDocument();
+  expect(screen.getByText('Inicio:').closest('p')).toHaveTextContent(
+    `Inicio: ${new Date(openIncident.first_failed_at).toLocaleString('es-ES')}`
+  );
+  expect(screen.getByText('Fin:').closest('p')).toHaveTextContent(
+    'Fin: En curso'
+  );
+  expect(screen.getByText('Subcheck:').closest('p')).toHaveTextContent(
+    'Subcheck: Database'
+  );
+});
+
+test('shows start and end timing for a resolved incident', async () => {
+  const resolvedIncident = {
+    ...openIncident,
+    status: 'resolved',
+    resolved_at: '2026-07-28T10:02:00.000Z'
+  };
+  prepareApi({ incidents: [resolvedIncident] });
+
+  render(<ServerHealth />);
+
+  expect(
+    await screen.findByText('Última incidencia resuelta')
+  ).toBeInTheDocument();
+  expect(screen.getByText('Inicio:').closest('p')).toHaveTextContent(
+    `Inicio: ${new Date(resolvedIncident.first_failed_at).toLocaleString(
+      'es-ES'
+    )}`
+  );
+  expect(screen.getByText('Fin:').closest('p')).toHaveTextContent(
+    `Fin: ${new Date(resolvedIncident.resolved_at).toLocaleString('es-ES')}`
+  );
+  expect(screen.getByText('Subcheck:').closest('p')).toHaveTextContent(
+    'Subcheck: Database'
+  );
+});
+
+test('does not show a subcheck for a failure without failed components', async () => {
+  prepareApi({
+    incidents: [
+      {
+        ...openIncident,
+        last_error: {
+          kind: 'timeout',
+          message: 'timeout of 5000ms exceeded',
+          components: []
+        }
+      }
+    ]
+  });
+
+  render(<ServerHealth />);
+
+  expect(await screen.findByText('Incidencia abierta')).toBeInTheDocument();
+  expect(screen.queryByText(/Subcheck:/)).not.toBeInTheDocument();
 });
 
 test('reports an unavailable monitor without hiding configured servers', async () => {
