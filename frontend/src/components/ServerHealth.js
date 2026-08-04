@@ -2,25 +2,21 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   getHealthStatus,
-  getHealthIncidents,
+  getHealthStatusHistory,
   getServers,
   triggerHealthCheck,
   deleteServer
 } from '../api';
 import { useEditMode } from '../EditModeContext';
 import ServerForm from './ServerForm';
-import IncidentTimelineCard from './IncidentTimelineCard';
+import ServerStatusStrip from './ServerStatusStrip';
+import CurrentCheckIssues from './CurrentCheckIssues';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBolt,
-  faCheckCircle,
-  faChevronDown,
-  faChevronUp,
   faPenToSquare,
   faPlus,
-  faSync,
-  faTriangleExclamation,
-  faTimesCircle,
+  faRotate,
   faTrash
 } from '@fortawesome/free-solid-svg-icons';
 import './ServerHealth.css';
@@ -35,6 +31,13 @@ const EMPTY_STATUS = {
   servers: {}
 };
 
+const CURRENT_STATE = {
+  ok: { className: 'ok', label: 'Operativo' },
+  warning: { className: 'warning', label: 'Parcialmente degradado' },
+  error: { className: 'error', label: 'Servicio degradado' },
+  unknown: { className: 'unknown', label: 'Pendiente' }
+};
+
 const formatTimestamp = (value) => {
   if (!value) return 'Pendiente';
   const date = new Date(value);
@@ -43,101 +46,122 @@ const formatTimestamp = (value) => {
     : date.toLocaleString('es-ES');
 };
 
-const statusPresentation = (status) => {
-  if (status === 'ok') {
-    return { className: 'status-ok', label: 'OK', icon: faCheckCircle };
-  }
-  if (status === 'warning') {
-    return {
-      className: 'status-warning',
-      label: 'Aviso',
-      icon: faTriangleExclamation
-    };
-  }
-  if (status === 'unknown') {
-    return {
-      className: 'status-unknown',
-      label: 'Pendiente',
-      icon: faTimesCircle
-    };
-  }
-  return {
-    className: 'status-error',
-    label: 'Error',
-    icon: faTimesCircle
-  };
-};
+const errorMessage = (error, fallback) =>
+  error?.response?.data?.error || error?.message || fallback;
 
 const ServerHealth = () => {
   const [monitorStatus, setMonitorStatus] = useState(EMPTY_STATUS);
-  const [incidents, setIncidents] = useState([]);
+  const [historyByServer, setHistoryByServer] = useState({});
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [servers, setServers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [expandedComponents, setExpandedComponents] = useState({});
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const { editMode, lock } = useEditMode();
 
-  const loadDashboard = useCallback(async () => {
-    try {
-      const [statusResponse, incidentsResponse] = await Promise.all([
-        getHealthStatus(),
-        getHealthIncidents(20)
-      ]);
-      setMonitorStatus(statusResponse.data || EMPTY_STATUS);
-      setIncidents(incidentsResponse.data || []);
-      setError(null);
-    } catch (err) {
-      setError(
-        err.response?.data?.error ||
-          err.message ||
-          'No se pudo consultar el monitor.'
-      );
-    } finally {
-      setLoading(false);
-    }
+  const applyHistory = useCallback((response) => {
+    setHistoryByServer(
+      Object.fromEntries(
+        (response?.data?.servers || []).map((entry) => [
+          entry.serverId,
+          entry
+        ])
+      )
+    );
+    setHistoryUnavailable(false);
   }, []);
+
+  const loadDashboard = useCallback(async () => {
+    const [statusResult, historyResult] = await Promise.allSettled([
+      getHealthStatus(),
+      getHealthStatusHistory({ hours: 24, bucketMinutes: 15 })
+    ]);
+
+    if (statusResult.status === 'rejected') {
+      setError(
+        errorMessage(
+          statusResult.reason,
+          'No se pudo consultar el monitor.'
+        )
+      );
+      return;
+    }
+
+    setMonitorStatus(statusResult.value.data || EMPTY_STATUS);
+    setError(null);
+    if (historyResult.status === 'fulfilled') {
+      applyHistory(historyResult.value);
+    } else {
+      setHistoryByServer({});
+      setHistoryUnavailable(true);
+    }
+  }, [applyHistory]);
 
   const loadServers = useCallback(async () => {
     try {
       const response = await getServers();
       setServers(response.data || []);
-    } catch (err) {
-      console.error('Error fetching servers:', err);
+    } catch (loadError) {
+      setError(
+        errorMessage(
+          loadError,
+          'No se pudieron cargar los servidores configurados.'
+        )
+      );
     }
   }, []);
 
   useEffect(() => {
-    loadDashboard();
-    loadServers();
-    const visualRefresh = setInterval(loadDashboard, 30000);
-    return () => clearInterval(visualRefresh);
+    let active = true;
+    Promise.allSettled([loadServers(), loadDashboard()]).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
   }, [loadDashboard, loadServers]);
 
-  useEffect(() => {
-    const nextExpanded = {};
-    Object.entries(monitorStatus.servers || {}).forEach(
-      ([serverName, serverData]) => {
-        Object.entries(serverData.components || {}).forEach(
-          ([componentName, componentData]) => {
-            nextExpanded[`${serverName}-${componentName}`] =
-              componentData?.status !== 'ok';
-          }
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadServers(), loadDashboard()]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleCheckNow = async () => {
+    setChecking(true);
+    try {
+      const response = await triggerHealthCheck();
+      setMonitorStatus(response.data || EMPTY_STATUS);
+      setError(null);
+      try {
+        applyHistory(
+          await getHealthStatusHistory({ hours: 24, bucketMinutes: 15 })
+        );
+      } catch (_historyError) {
+        setHistoryByServer({});
+        setHistoryUnavailable(true);
+      }
+    } catch (checkError) {
+      if (checkError.response?.status === 401) {
+        lock();
+        setError('Sesión de edición caducada. Vuelve a desbloquear.');
+      } else {
+        setError(
+          errorMessage(
+            checkError,
+            'No se pudo ejecutar la comprobación.'
+          )
         );
       }
-    );
-    setExpandedComponents(nextExpanded);
-  }, [monitorStatus]);
-
-  const toggleComponentExpansion = (serverName, componentName) => {
-    const key = `${serverName}-${componentName}`;
-    setExpandedComponents((current) => ({
-      ...current,
-      [key]: !current[key]
-    }));
+    } finally {
+      setChecking(false);
+    }
   };
 
   const openAdd = () => {
@@ -157,51 +181,41 @@ const ServerHealth = () => {
   };
 
   const handleDelete = async (server) => {
-    if (!window.confirm(`¿Borrar el servidor "${server.name}"?`)) return;
+    if (!window.confirm(`¿Eliminar el servidor "${server.name}"?`)) return;
     try {
       await deleteServer(server.id);
       await Promise.all([loadServers(), loadDashboard()]);
-    } catch (err) {
-      if (err.response?.status === 401) {
+    } catch (deleteError) {
+      if (deleteError.response?.status === 401) {
         lock();
-        alert('Sesión de edición caducada. Vuelve a desbloquear.');
+        window.alert('Sesión de edición caducada. Vuelve a desbloquear.');
       } else {
-        alert(err.response?.data?.error || 'No se pudo borrar.');
-      }
-    }
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await loadDashboard();
-    setRefreshing(false);
-  };
-
-  const handleCheckNow = async () => {
-    setChecking(true);
-    try {
-      const response = await triggerHealthCheck();
-      setMonitorStatus(response.data || EMPTY_STATUS);
-      const incidentsResponse = await getHealthIncidents(20);
-      setIncidents(incidentsResponse.data || []);
-      setError(null);
-    } catch (err) {
-      if (err.response?.status === 401) {
-        lock();
-        setError('Sesión de edición caducada. Vuelve a desbloquear.');
-      } else {
-        setError(
-          err.response?.data?.error ||
-            err.message ||
-            'No se pudo ejecutar la comprobación.'
+        window.alert(
+          errorMessage(deleteError, 'No se pudo borrar el servidor.')
         );
       }
-    } finally {
-      setChecking(false);
     }
   };
 
   const snapshotServers = monitorStatus.servers || {};
+  const visibleServers = Object.keys(snapshotServers).length > 0
+    ? snapshotServers
+    : Object.fromEntries(
+        servers.map((server) => [
+          server.name,
+          {
+            serverId: server.id,
+            name: server.name,
+            url: server.url,
+            checkedAt: null,
+            status: 'unknown',
+            components: {},
+            error: null,
+            warning: null,
+            info: {}
+          }
+        ])
+      );
   const monitorState =
     monitorStatus.state ||
     (monitorStatus.started
@@ -209,22 +223,6 @@ const ServerHealth = () => {
         ? 'degraded'
         : 'active'
       : 'stopped');
-  const visibleServers =
-    Object.keys(snapshotServers).length > 0
-      ? snapshotServers
-      : Object.fromEntries(
-          servers.map((server) => [
-            server.name,
-            {
-              serverId: server.id,
-              name: server.name,
-              url: server.url,
-              status: 'unknown',
-              components: {},
-              info: { connection: 'Pendiente de la primera comprobación' }
-            }
-          ])
-        );
 
   if (loading) {
     return <div className="loading">Cargando estado del monitor...</div>;
@@ -236,47 +234,37 @@ const ServerHealth = () => {
         <div>
           <h2>Control de servicios</h2>
           <p className="server-health-subtitle">
-            Vigilancia autónoma desde el backend
+            Estado actual y evolución durante las últimas 24 horas
           </p>
         </div>
         <div className="refresh-controls">
           {editMode && (
-            <>
-              <button className="add-button" onClick={openAdd}>
-                <FontAwesomeIcon icon={faPlus} /> Añadir servidor
-              </button>
-              <button
-                className="check-now-button"
-                onClick={handleCheckNow}
-                disabled={checking}
-              >
-                <FontAwesomeIcon icon={faBolt} />
-                {checking ? 'Comprobando...' : 'Comprobar ahora'}
-              </button>
-            </>
+            <button className="check-now-button" onClick={handleCheckNow} disabled={checking}>
+              <FontAwesomeIcon icon={faBolt} />
+              {checking ? 'Comprobando...' : 'Comprobar ahora'}
+            </button>
           )}
-          <button
-            className="refresh-button"
-            onClick={handleRefresh}
-            disabled={refreshing}
-          >
-            <FontAwesomeIcon icon={faSync} spin={refreshing} />
-            Actualizar vista
+          <button className="refresh-button" onClick={handleRefresh} disabled={refreshing}>
+            <FontAwesomeIcon icon={faRotate} />
+            {refreshing ? 'Actualizando...' : 'Actualizar vista'}
           </button>
+          {editMode && (
+            <button className="add-server-button" onClick={openAdd}>
+              <FontAwesomeIcon icon={faPlus} /> Añadir servidor
+            </button>
+          )}
         </div>
       </div>
 
       <section className="monitor-summary" aria-label="Estado del monitor">
-        <span
-          className={`monitor-badge ${monitorState}`}
-        >
+        <span className={`monitor-badge ${monitorState}`}>
           {monitorStatus.running
             ? 'Comprobando servicios'
             : monitorState === 'degraded'
               ? 'Monitor degradado'
               : monitorState === 'active'
-              ? 'Monitor activo'
-              : 'Monitor no disponible'}
+                ? 'Monitor activo'
+                : 'Monitor no disponible'}
         </span>
         <span>
           <strong>Última comprobación:</strong>{' '}
@@ -290,9 +278,7 @@ const ServerHealth = () => {
 
       {error && <div className="error-message compact">{error}</div>}
       {monitorStatus.lastError && (
-        <div className="error-message compact">
-          {monitorStatus.lastError}
-        </div>
+        <div className="error-message compact">{monitorStatus.lastError}</div>
       )}
 
       {Object.keys(visibleServers).length === 0 ? (
@@ -301,177 +287,73 @@ const ServerHealth = () => {
         </div>
       ) : (
         <div className="server-list">
-          {Object.entries(visibleServers).map(
-            ([serverName, serverData]) => {
-              const record = servers.find(
-                (server) =>
-                  server.id === serverData.serverId ||
-                  server.name === serverData.name
-              );
-              const storedIncident =
-                serverData.incident &&
-                serverData.incident.status !== 'pending'
-                  ? serverData.incident
-                  : incidents.find(
-                      (incident) =>
-                        incident.server_id === serverData.serverId
-                    );
-              const serverStatus = statusPresentation(serverData.status);
+          {Object.entries(visibleServers).map(([serverName, serverData]) => {
+            const record = servers.find(
+              (server) =>
+                server.id === serverData.serverId ||
+                server.name === serverData.name
+            );
+            const serverId = serverData.serverId || record?.id;
+            const currentState =
+              CURRENT_STATE[serverData.status] || CURRENT_STATE.unknown;
 
-              return (
-                <article key={serverName} className="server-card">
-                  <div className="server-header">
-                    <h3>{serverData.name}</h3>
-                    <span
-                      className={`status-badge ${serverStatus.className}`}
-                    >
-                      <FontAwesomeIcon
-                        icon={serverStatus.icon}
-                      />
-                      {serverStatus.label}
-                    </span>
-                    {editMode && record && (
-                      <span className="server-actions">
-                        <button
-                          className="icon-button"
-                          onClick={() => openEdit(record)}
-                          title="Editar"
-                        >
-                          <FontAwesomeIcon icon={faPenToSquare} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          onClick={() => handleDelete(record)}
-                          title="Borrar"
-                        >
-                          <FontAwesomeIcon icon={faTrash} />
-                        </button>
+            return (
+              <article key={serverName} className="server-card">
+                <header className="server-row-header">
+                  <div className="server-identity">
+                    <div className="server-title-line">
+                      <h3>{serverData.name}</h3>
+                      <span className={`server-current-state ${currentState.className}`}>
+                        <span className="server-current-state-dot" aria-hidden="true" />
+                        {currentState.label}
                       </span>
-                    )}
-                  </div>
-
-                  <div className="server-info">
-                    <p>
-                      <strong>URL:</strong>{' '}
-                      {serverData.url || serverData.info?.url || 'N/A'}
-                    </p>
-                    <p>
-                      <strong>Conexión:</strong>{' '}
-                      {serverData.info?.connection || 'N/A'}
-                    </p>
-                    <p>
-                      <strong>Comprobado:</strong>{' '}
-                      {formatTimestamp(serverData.checkedAt)}
+                    </div>
+                    <p className="server-row-meta">
+                      <span>{serverData.url}</span>
+                      <span>Comprobado: {formatTimestamp(serverData.checkedAt)}</span>
                     </p>
                   </div>
+                  {editMode && record && (
+                    <span className="server-actions">
+                      <button
+                        className="icon-button"
+                        onClick={() => openEdit(record)}
+                        title="Editar"
+                        aria-label={`Editar ${record.name}`}
+                      >
+                        <FontAwesomeIcon icon={faPenToSquare} />
+                      </button>
+                      <button
+                        className="icon-button delete"
+                        onClick={() => handleDelete(record)}
+                        title="Eliminar"
+                        aria-label={`Eliminar ${record.name}`}
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </span>
+                  )}
+                </header>
 
-                  {(serverData.serverId || record?.id) && (
+                <ServerStatusStrip
+                  history={historyByServer[serverId]}
+                  unavailable={historyUnavailable}
+                />
+                <CurrentCheckIssues server={serverData} />
+
+                {serverId && (
+                  <footer className="server-row-footer">
                     <Link
                       className="server-card-history-link"
-                      to={`/health/servers/${serverData.serverId || record.id}/history`}
+                      to={`/health/servers/${serverId}/history`}
                     >
                       Ver histórico
                     </Link>
-                  )}
-
-                  {storedIncident && (
-                    <IncidentTimelineCard
-                      incident={storedIncident}
-                      serverName={serverData.name}
-                    />
-                  )}
-
-                  {Object.keys(serverData.components || {}).length > 0 && (
-                    <div className="server-components">
-                      <h4>Componentes</h4>
-                      {Object.entries(serverData.components).map(
-                        ([componentName, componentData]) => {
-                          const key = `${serverName}-${componentName}`;
-                          const componentStatus = statusPresentation(
-                            componentData?.status
-                          );
-                          return (
-                            <div key={componentName} className="component-item">
-                              <button
-                                type="button"
-                                className="component-header"
-                                onClick={() =>
-                                  toggleComponentExpansion(
-                                    serverName,
-                                    componentName
-                                  )
-                                }
-                              >
-                                <span className="component-name">
-                                  {componentData?.name || componentName}
-                                </span>
-                                <span className="component-status">
-                                  <span
-                                    className={`status-badge ${componentStatus.className}`}
-                                  >
-                                    <FontAwesomeIcon
-                                      icon={componentStatus.icon}
-                                    />
-                                    {componentStatus.label}
-                                  </span>
-                                  <FontAwesomeIcon
-                                    icon={
-                                      expandedComponents[key]
-                                        ? faChevronUp
-                                        : faChevronDown
-                                    }
-                                  />
-                                </span>
-                              </button>
-                              {expandedComponents[key] && (
-                                <div className="component-content">
-                                  {componentData?.info && (
-                                    <div className="component-info">
-                                      {Object.entries(componentData.info).map(
-                                        ([infoKey, value]) => (
-                                          <p key={infoKey}>
-                                            <strong>{infoKey}:</strong>{' '}
-                                            {typeof value === 'object'
-                                              ? value?.message ||
-                                                JSON.stringify(value)
-                                              : String(value)}
-                                          </p>
-                                        )
-                                      )}
-                                    </div>
-                                  )}
-                                  {componentData?.errors?.length > 0 && (
-                                    <div className="component-errors">
-                                      <h5>Errores</h5>
-                                      <ul>
-                                        {componentData.errors.map(
-                                          (componentError, index) => (
-                                            <li key={index}>
-                                              {typeof componentError ===
-                                              'string'
-                                                ? componentError
-                                                : componentError?.message ||
-                                                  JSON.stringify(
-                                                    componentError
-                                                  )}
-                                            </li>
-                                          )
-                                        )}
-                                      </ul>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        }
-                      )}
-                    </div>
-                  )}
-                </article>
-              );
-            }
-          )}
+                  </footer>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
 

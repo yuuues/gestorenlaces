@@ -61,6 +61,7 @@
 
 @media (max-width: 760px) {
   .status-strip-blocks {
+    grid-template-columns: repeat(96, minmax(1px, 1fr));
     gap: 1px;
   }
 

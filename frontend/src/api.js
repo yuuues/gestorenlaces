@@ -33,6 +33,13 @@ export const deleteBookmark = (id) => api.delete(`/api/bookmarks/${id}`);
 // Server Health API functions
 export const getServers = () => api.get('/api/health/servers');
 export const getHealthStatus = () => api.get('/api/health/status');
+export const getHealthStatusHistory = ({
+  hours = 24,
+  bucketMinutes = 15
+} = {}) =>
+  api.get('/api/health/status-history', {
+    params: { hours, bucketMinutes }
+  });
 export const getHealthIncidents = (limit = 20) =>
   api.get(`/api/health/incidents?limit=${encodeURIComponent(limit)}`);
 export const getServerIncidents = (serverId, filters = {}) =>
