@@ -1,0 +1,72 @@
+.server-status-strip {
+  min-width: 0;
+}
+
+.status-strip-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 7px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.status-strip-heading strong {
+  color: #475569;
+}
+
+.status-strip-blocks {
+  display: grid;
+  grid-template-columns: repeat(96, minmax(2px, 1fr));
+  gap: 2px;
+  height: 30px;
+}
+
+.status-strip-block {
+  min-width: 0;
+  border-radius: 2px;
+  background: #d7dde5;
+}
+
+.status-strip-block.ok {
+  background: #52a447;
+}
+
+.status-strip-block.warning {
+  background: #e0ad25;
+}
+
+.status-strip-block.error {
+  background: #d63b3b;
+}
+
+.status-strip-block.unknown {
+  background: #d7dde5;
+}
+
+.status-strip-axis {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 7px;
+  color: #8491a3;
+  font-size: 10px;
+}
+
+.status-strip-axis-line {
+  height: 1px;
+  flex: 1;
+  background: #dfe4ea;
+}
+
+@media (max-width: 760px) {
+  .status-strip-blocks {
+    gap: 1px;
+  }
+
+  .status-strip-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}

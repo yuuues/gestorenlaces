@@ -1,0 +1,75 @@
+.current-check-issues {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.current-check-issue {
+  overflow: hidden;
+  border: 1px solid #f0cccc;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #fff8f8;
+  color: #7c2525;
+}
+
+.current-check-issue.warning {
+  border-color: #ead89c;
+  background: #fffaf0;
+  color: #765b0d;
+}
+
+.current-check-issue header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.current-check-issue header span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.current-check-issue.warning header span {
+  background: #fef3c7;
+  color: #8a6200;
+}
+
+.current-check-messages {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.current-check-facts {
+  display: grid;
+  grid-template-columns: minmax(130px, auto) 1fr;
+  gap: 4px 12px;
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.current-check-facts dt {
+  font-weight: 700;
+}
+
+.current-check-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+  .current-check-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .current-check-facts dd {
+    margin-bottom: 5px;
+  }
+}
