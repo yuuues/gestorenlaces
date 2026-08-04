@@ -186,6 +186,22 @@ const createIncidentStore = (db) => {
     return updated.changes === 1 ? getById(incident.id) : null;
   };
 
+  const resolveSilently = async (incident, now, reason) => {
+    const updated = await run(
+      db,
+      `
+        UPDATE health_incidents
+        SET status = 'resolved',
+            resolved_at = ?,
+            resolution_reason = ?,
+            recovery_notified_at = ?
+        WHERE id = ? AND status = 'open'
+      `,
+      [now, reason, now, incident.id]
+    );
+    return updated.changes === 1 ? getById(incident.id) : null;
+  };
+
   const deletePending = (id) =>
     run(
       db,
@@ -274,6 +290,7 @@ const createIncidentStore = (db) => {
     updateFailure,
     openPending,
     resolve,
+    resolveSilently,
     deletePending,
     recordDelivery,
     closeForRemovedServer,

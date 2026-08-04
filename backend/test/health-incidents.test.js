@@ -32,6 +32,20 @@ const errorResult = {
   }
 };
 
+const warningResult = {
+  ...okResult,
+  status: 'warning',
+  components: {
+    database: { name: 'Database', status: 'warning' }
+  },
+  error: null,
+  warning: {
+    kind: 'component',
+    message: 'Components warning: Database',
+    components: ['Database']
+  }
+};
+
 const get = (db, sql, params = []) =>
   new Promise((resolve, reject) => {
     db.get(sql, params, (error, row) => {
@@ -75,6 +89,44 @@ test('success without an incident performs no insert', async (t) => {
     (await get(db, 'SELECT COUNT(*) AS count FROM health_incidents')).count,
     0
   );
+});
+
+test('warning without an active incident is not persisted or notified', async (t) => {
+  const { db, manager } = await fixture(t);
+
+  const outcome = await manager.record(warningResult, NOW);
+
+  assert.equal(outcome.incident, null);
+  assert.equal(outcome.notification, null);
+  assert.equal(
+    (await get(db, 'SELECT COUNT(*) AS count FROM health_incidents')).count,
+    0
+  );
+});
+
+test('warning discards a pending error sequence', async (t) => {
+  const { store, manager } = await fixture(t);
+  await manager.record(errorResult, NOW);
+
+  const outcome = await manager.record(warningResult, PLUS_ONE_MINUTE);
+
+  assert.equal(outcome.incident, null);
+  assert.equal(outcome.notification, null);
+  assert.equal(await store.getActive(errorResult.serverId), null);
+});
+
+test('warning resolves an open error silently without pending recovery', async (t) => {
+  const { store, manager } = await fixture(t);
+  const opened = await openIncident(manager);
+  await manager.markDelivery(opened.id, 'opened', PLUS_ONE_MINUTE, true);
+
+  const outcome = await manager.record(warningResult, PLUS_TWO_MINUTES);
+
+  assert.equal(outcome.incident.status, 'resolved');
+  assert.equal(outcome.incident.resolution_reason, 'warning');
+  assert.equal(outcome.incident.recovery_notified_at, PLUS_TWO_MINUTES);
+  assert.equal(outcome.notification, null);
+  assert.equal(await store.getPendingRecovery(errorResult.serverId), null);
 });
 
 test('one failure creates pending state and recovery deletes it', async (t) => {
