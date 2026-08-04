@@ -249,6 +249,12 @@ test('incidents endpoint clamps limit to one through one hundred', async (t) => 
 
 test('bulk status history uses all configured servers and 24-hour defaults', async (t) => {
   const { db, statusHistoryService, baseUrl } = await createFixture(t);
+  const configuredServers = await new Promise((resolve, reject) => {
+    db.all('SELECT id FROM servers ORDER BY id', (error, rows) => {
+      if (error) reject(error);
+      else resolve(rows);
+    });
+  });
   const first = await run(
     db,
     'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
@@ -262,11 +268,16 @@ test('bulk status history uses all configured servers and 24-hour defaults', asy
 
   const response = await fetch(`${baseUrl}/api/health/status-history`);
   const body = await response.json();
+  const expectedServerIds = [
+    ...configuredServers.map(({ id }) => id),
+    first.lastID,
+    second.lastID
+  ];
 
   assert.equal(response.status, 200);
   assert.deepEqual(statusHistoryService.calls, [
     {
-      serverIds: [first.lastID, second.lastID],
+      serverIds: expectedServerIds,
       options: {
         from: '2026-07-27T10:00:00.000Z',
         to: '2026-07-28T10:00:00.000Z',
@@ -277,7 +288,7 @@ test('bulk status history uses all configured servers and 24-hour defaults', asy
   assert.equal(body.bucketMinutes, 15);
   assert.deepEqual(
     body.servers.map(({ serverId }) => serverId),
-    [first.lastID, second.lastID]
+    expectedServerIds
   );
 });
 
