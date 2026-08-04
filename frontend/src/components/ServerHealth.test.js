@@ -7,6 +7,7 @@ import {
   cleanup
 } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { MemoryRouter } from 'react-router-dom';
 import ServerHealth from './ServerHealth';
 import {
   getHealthStatus,
@@ -103,6 +104,15 @@ const prepareApi = ({
   triggerHealthCheck.mockResolvedValue({ data: snapshot });
 };
 
+const renderHealth = () =>
+  render(
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      <ServerHealth />
+    </MemoryRouter>
+  );
+
 afterEach(() => {
   cleanup();
   jest.clearAllMocks();
@@ -112,13 +122,22 @@ afterEach(() => {
 test('shows autonomous monitor metadata and the latest server state', async () => {
   prepareApi();
 
-  render(<ServerHealth />);
+  renderHealth();
 
   expect(await screen.findByText('Monitor activo')).toBeInTheDocument();
   expect(screen.getByText(/Última comprobación:/)).toBeInTheDocument();
   expect(screen.getByText(/Próxima comprobación:/)).toBeInTheDocument();
   expect(screen.getByText('Magma Nodo 1')).toBeInTheDocument();
   expect(screen.getByText('Conexión validada')).toBeInTheDocument();
+});
+
+test('links each configured server to its dedicated history', async () => {
+  prepareApi();
+
+  renderHealth();
+
+  const link = await screen.findByRole('link', { name: 'Ver histórico' });
+  expect(link).toHaveAttribute('href', '/health/servers/1/history');
 });
 
 test('shows warning badges and expands the warning component details', async () => {
@@ -153,7 +172,7 @@ test('shows warning badges and expands the warning component details', async () 
     }
   });
 
-  render(<ServerHealth />);
+  renderHealth();
 
   expect(await screen.findByText('Components warning: db')).toBeInTheDocument();
   expect(screen.getAllByText('Aviso')).toHaveLength(2);
@@ -168,7 +187,7 @@ test('shows warning badges and expands the warning component details', async () 
 test('has no browser Start or Stop monitoring controls', async () => {
   prepareApi();
 
-  render(<ServerHealth />);
+  renderHealth();
   await screen.findByText('Magma Nodo 1');
 
   expect(
@@ -179,7 +198,7 @@ test('has no browser Start or Stop monitoring controls', async () => {
 
 test('ordinary refresh only reads status and incidents', async () => {
   prepareApi();
-  render(<ServerHealth />);
+  renderHealth();
   await screen.findByText('Magma Nodo 1');
   getHealthStatus.mockClear();
   getHealthIncidents.mockClear();
@@ -200,7 +219,7 @@ test('ordinary refresh only reads status and incidents', async () => {
 test('admin can request an immediate server-side check', async () => {
   mockEditMode = true;
   prepareApi();
-  render(<ServerHealth />);
+  renderHealth();
   await screen.findByText('Magma Nodo 1');
 
   await act(async () => {
@@ -217,7 +236,7 @@ test('admin can request an immediate server-side check', async () => {
 test('shows the open incident stored for a server', async () => {
   prepareApi({ incidents: [openIncident] });
 
-  render(<ServerHealth />);
+  renderHealth();
 
   expect(
     await screen.findByRole('heading', { name: 'Incidencia de Database' })
@@ -237,7 +256,7 @@ test('shows start and end timing for a resolved incident', async () => {
   };
   prepareApi({ incidents: [resolvedIncident] });
 
-  render(<ServerHealth />);
+  renderHealth();
 
   expect(await screen.findByText('Resuelta')).toBeInTheDocument();
   expect(screen.getByText('Error detectado')).toBeInTheDocument();
@@ -258,7 +277,7 @@ test('uses the server name for a failure without failed components', async () =>
     ]
   });
 
-  render(<ServerHealth />);
+  renderHealth();
 
   expect(
     await screen.findByRole('heading', {
@@ -276,7 +295,7 @@ test('reports an unavailable monitor without hiding configured servers', async (
     }
   });
 
-  render(<ServerHealth />);
+  renderHealth();
 
   expect(
     await screen.findByText('Monitor no disponible')
@@ -294,7 +313,7 @@ test('shows a degraded monitor when autonomous rounds are failing', async () => 
     }
   });
 
-  render(<ServerHealth />);
+  renderHealth();
 
   expect(await screen.findByText('Monitor degradado')).toBeInTheDocument();
   expect(screen.getByText('database unavailable')).toBeInTheDocument();

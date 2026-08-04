@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   getHealthStatus,
   getHealthIncidents,
@@ -363,6 +364,15 @@ const ServerHealth = () => {
                       {formatTimestamp(serverData.checkedAt)}
                     </p>
                   </div>
+
+                  {(serverData.serverId || record?.id) && (
+                    <Link
+                      className="server-card-history-link"
+                      to={`/health/servers/${serverData.serverId || record.id}/history`}
+                    >
+                      Ver histórico
+                    </Link>
+                  )}
 
                   {storedIncident && (
                     <IncidentTimelineCard

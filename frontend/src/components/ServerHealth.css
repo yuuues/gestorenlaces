@@ -185,6 +185,25 @@
   color: #555;
 }
 
+.server-card-history-link {
+  display: inline-flex;
+  margin-bottom: 14px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.server-card-history-link:hover {
+  text-decoration: underline;
+}
+
+.server-card-history-link:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.3);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
 .server-components {
   border-top: 1px solid #eee;
   padding-top: 15px;

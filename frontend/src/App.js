@@ -4,6 +4,7 @@ import './App.css';
 import { EditModeProvider } from './EditModeContext';
 import BookmarksView from './views/BookmarksView';
 import ServerHealth from './components/ServerHealth';
+import ServerHistory from './components/ServerHistory';
 import McpList from './components/McpList';
 import UnlockControl from './components/UnlockControl';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -32,6 +33,7 @@ function App() {
           <Routes>
             <Route path="/" element={<BookmarksView />} />
             <Route path="/health" element={<main className="main-content full-width"><ServerHealth /></main>} />
+            <Route path="/health/servers/:serverId/history" element={<main className="main-content full-width"><ServerHistory /></main>} />
             <Route path="/mcps" element={<main className="main-content full-width"><McpList /></main>} />
             <Route path="/mcps/:folder" element={<main className="main-content full-width"><McpList /></main>} />
           </Routes>
