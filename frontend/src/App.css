@@ -1,10 +1,18 @@
 .app {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 100vh;
 }
 
 .app-header {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   background-color: #282c34;
   padding: 20px;
   color: white;
@@ -19,6 +27,8 @@
 .view-tabs {
   display: flex;
   justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   margin-bottom: 15px;
 }
 
@@ -73,7 +83,10 @@
 }
 
 .main-content {
+  box-sizing: border-box;
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
   padding: 20px;
   overflow-y: auto;
 }
@@ -81,6 +94,8 @@
 .main-content.full-width {
   flex: 1;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .error-message {
@@ -111,6 +126,36 @@
 }
 .lock-button.active {
   background: rgba(255, 255, 255, 0.2);
+}
+
+@media (max-width: 760px) {
+  .app-header {
+    padding: 14px 10px 10px;
+  }
+
+  .app-header h1 {
+    margin-bottom: 8px;
+    font-size: 1.4rem;
+  }
+
+  .view-tabs {
+    gap: 4px 6px;
+    margin-bottom: 0;
+  }
+
+  .view-tab {
+    margin: 0;
+    padding: 7px 9px;
+    font-size: 0.9rem;
+  }
+
+  .lock-button {
+    margin-left: 0;
+  }
+
+  .main-content {
+    padding: 10px;
+  }
 }
 
 

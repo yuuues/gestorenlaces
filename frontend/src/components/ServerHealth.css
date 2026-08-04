@@ -131,7 +131,7 @@
 .server-list {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
+  gap: 10px;
 }
 
 .server-card {
@@ -285,26 +285,44 @@
 
 @media (max-width: 760px) {
   .server-health-container {
-    padding: 14px;
+    padding: 8px 0;
   }
 
-  .server-health-header,
-  .server-row-header {
+  .server-health-header {
     align-items: stretch;
     flex-direction: column;
+    gap: 12px;
+  }
+
+  .monitor-metadata {
+    flex-direction: column;
+    gap: 3px;
   }
 
   .refresh-controls {
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+    width: 100%;
+  }
+
+  .refresh-button,
+  .check-now-button,
+  .add-server-button {
+    justify-content: center;
+    min-width: 0;
   }
 
   .server-card {
-    padding: 16px 14px 12px;
+    padding: 13px 14px 11px;
   }
 
-  .server-actions {
-    align-self: flex-end;
-    margin-top: -42px;
+  .server-row-header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .server-header-actions {
+    justify-content: flex-end;
   }
 
   .server-row-meta {
@@ -315,6 +333,36 @@
 
   .server-row-meta span:first-child {
     max-width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .server-row-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .server-header-actions {
+    align-self: stretch;
+  }
+}
+
+@media (max-width: 460px) {
+  .server-health-header h2 {
+    font-size: 23px;
+  }
+
+  .refresh-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .server-card {
+    padding: 12px 10px 10px;
+  }
+
+  .server-title-line {
+    gap: 6px;
   }
 }
 

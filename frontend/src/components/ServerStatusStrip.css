@@ -1,12 +1,16 @@
 .server-status-strip {
   min-width: 0;
+  max-width: 100%;
 }
 
 .status-strip-heading {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   gap: 16px;
-  margin-bottom: 7px;
+  margin-bottom: 5px;
   color: #64748b;
   font-size: 12px;
 }
@@ -19,7 +23,9 @@
   display: grid;
   grid-template-columns: repeat(96, minmax(2px, 1fr));
   gap: 2px;
-  height: 30px;
+  min-width: 0;
+  max-width: 100%;
+  height: 26px;
 }
 
 .status-strip-block {
@@ -48,7 +54,9 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 7px;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 5px;
   color: #8491a3;
   font-size: 10px;
 }
@@ -63,11 +71,11 @@
   .status-strip-blocks {
     grid-template-columns: repeat(96, minmax(1px, 1fr));
     gap: 1px;
+    height: 23px;
   }
 
   .status-strip-heading {
     align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
+    gap: 3px 12px;
   }
 }
