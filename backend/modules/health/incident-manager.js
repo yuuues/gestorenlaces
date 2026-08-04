@@ -99,11 +99,33 @@ const createIncidentManager = ({
     };
   };
 
+  const recordWarning = async (now, active) => {
+    if (active?.status === 'pending') {
+      await store.deletePending(active.id);
+      return { incident: null, notification: null };
+    }
+
+    if (active?.status === 'open') {
+      const incident = await store.resolveSilently(
+        active,
+        now,
+        'warning'
+      );
+      return { incident, notification: null };
+    }
+
+    return { incident: null, notification: null };
+  };
+
   const record = async (result, now) => {
     const active = await store.getActive(result.serverId);
-    return result.status === 'error'
-      ? recordFailure(result, now, active)
-      : recordSuccess(result, now, active);
+    if (result.status === 'error') {
+      return recordFailure(result, now, active);
+    }
+    if (result.status === 'warning') {
+      return recordWarning(now, active);
+    }
+    return recordSuccess(result, now, active);
   };
 
   const markDelivery = (id, type, now, delivered) =>
@@ -114,11 +136,15 @@ const createIncidentManager = ({
 
   const listRecent = (limit) => store.listRecent(limit);
 
+  const listForServer = (serverId, filters) =>
+    store.listForServer(serverId, filters);
+
   return {
     record,
     markDelivery,
     closeForRemovedServer,
-    listRecent
+    listRecent,
+    listForServer
   };
 };
 

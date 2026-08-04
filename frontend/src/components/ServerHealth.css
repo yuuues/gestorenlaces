@@ -165,6 +165,11 @@
   color: #d32f2f;
 }
 
+.status-warning {
+  background-color: #fff7d6;
+  color: #9a6700;
+}
+
 .status-unknown {
   background-color: #f2f4f7;
   color: #475467;
@@ -178,6 +183,25 @@
   margin: 5px 0;
   font-size: 14px;
   color: #555;
+}
+
+.server-card-history-link {
+  display: inline-flex;
+  margin-bottom: 14px;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.server-card-history-link:hover {
+  text-decoration: underline;
+}
+
+.server-card-history-link:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.3);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 
 .server-components {
@@ -297,27 +321,8 @@
   font-size: 14px;
 }
 
-.incident-summary {
+.server-card > .incident-timeline-card {
   margin: 14px 0;
-  padding: 10px 12px;
-  border-left: 4px solid #dc2626;
-  border-radius: 4px;
-  background: #fef2f2;
-}
-
-.incident-summary.resolved {
-  border-left-color: #16a34a;
-  background: #f0fdf4;
-}
-
-.incident-summary h4 {
-  margin: 0 0 6px;
-}
-
-.incident-summary p {
-  margin: 4px 0;
-  color: #475467;
-  font-size: 13px;
 }
 
 .server-actions {

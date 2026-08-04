@@ -186,6 +186,22 @@ const createIncidentStore = (db) => {
     return updated.changes === 1 ? getById(incident.id) : null;
   };
 
+  const resolveSilently = async (incident, now, reason) => {
+    const updated = await run(
+      db,
+      `
+        UPDATE health_incidents
+        SET status = 'resolved',
+            resolved_at = ?,
+            resolution_reason = ?,
+            recovery_notified_at = ?
+        WHERE id = ? AND status = 'open'
+      `,
+      [now, reason, now, incident.id]
+    );
+    return updated.changes === 1 ? getById(incident.id) : null;
+  };
+
   const deletePending = (id) =>
     run(
       db,
@@ -266,6 +282,64 @@ const createIncidentStore = (db) => {
     return rows.map(decodeRow);
   };
 
+  const listForServer = async (
+    serverId,
+    {
+      limit = 20,
+      offset = 0,
+      status = null,
+      component = '',
+      from = null
+    } = {}
+  ) => {
+    const conditions = ["server_id = ?", "status != 'pending'"];
+    const params = [serverId];
+
+    if (status) {
+      conditions.push('status = ?');
+      params.push(status);
+    }
+    if (from) {
+      conditions.push('COALESCE(opened_at, first_failed_at) >= ?');
+      params.push(from);
+    }
+    if (component) {
+      conditions.push(`
+        EXISTS (
+          SELECT 1
+          FROM json_each(health_incidents.last_error, '$.components')
+          WHERE json_each.value = ?
+        )
+      `);
+      params.push(component);
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const countRow = await get(
+      db,
+      `SELECT COUNT(*) AS count FROM health_incidents ${where}`,
+      params
+    );
+    const rows = await all(
+      db,
+      `
+        SELECT *
+        FROM health_incidents
+        ${where}
+        ORDER BY COALESCE(opened_at, first_failed_at) DESC, id DESC
+        LIMIT ? OFFSET ?
+      `,
+      [...params, limit, offset]
+    );
+
+    return {
+      items: rows.map(decodeRow),
+      total: countRow.count,
+      limit,
+      offset
+    };
+  };
+
   return {
     ensureSchema,
     getActive,
@@ -274,10 +348,12 @@ const createIncidentStore = (db) => {
     updateFailure,
     openPending,
     resolve,
+    resolveSilently,
     deletePending,
     recordDelivery,
     closeForRemovedServer,
-    listRecent
+    listRecent,
+    listForServer
   };
 };
 

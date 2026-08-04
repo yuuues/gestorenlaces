@@ -35,6 +35,14 @@ export const getServers = () => api.get('/api/health/servers');
 export const getHealthStatus = () => api.get('/api/health/status');
 export const getHealthIncidents = (limit = 20) =>
   api.get(`/api/health/incidents?limit=${encodeURIComponent(limit)}`);
+export const getServerIncidents = (serverId, filters = {}) =>
+  api.get(`/api/health/servers/${serverId}/incidents`, {
+    params: Object.fromEntries(
+      Object.entries(filters).filter(
+        ([, value]) => value !== '' && value !== null && value !== undefined
+      )
+    )
+  });
 export const triggerHealthCheck = () => api.post('/api/health/check');
 // Compatibility for consumers that still use the previous read helper.
 export const checkServersHealth = getHealthStatus;

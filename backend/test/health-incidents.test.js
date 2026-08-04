@@ -32,11 +32,33 @@ const errorResult = {
   }
 };
 
+const warningResult = {
+  ...okResult,
+  status: 'warning',
+  components: {
+    database: { name: 'Database', status: 'warning' }
+  },
+  error: null,
+  warning: {
+    kind: 'component',
+    message: 'Components warning: Database',
+    components: ['Database']
+  }
+};
+
 const get = (db, sql, params = []) =>
   new Promise((resolve, reject) => {
     db.get(sql, params, (error, row) => {
       if (error) reject(error);
       else resolve(row);
+    });
+  });
+
+const run = (db, sql, params = []) =>
+  new Promise((resolve, reject) => {
+    db.run(sql, params, function onRun(error) {
+      if (error) reject(error);
+      else resolve({ lastID: this.lastID, changes: this.changes });
     });
   });
 
@@ -75,6 +97,44 @@ test('success without an incident performs no insert', async (t) => {
     (await get(db, 'SELECT COUNT(*) AS count FROM health_incidents')).count,
     0
   );
+});
+
+test('warning without an active incident is not persisted or notified', async (t) => {
+  const { db, manager } = await fixture(t);
+
+  const outcome = await manager.record(warningResult, NOW);
+
+  assert.equal(outcome.incident, null);
+  assert.equal(outcome.notification, null);
+  assert.equal(
+    (await get(db, 'SELECT COUNT(*) AS count FROM health_incidents')).count,
+    0
+  );
+});
+
+test('warning discards a pending error sequence', async (t) => {
+  const { store, manager } = await fixture(t);
+  await manager.record(errorResult, NOW);
+
+  const outcome = await manager.record(warningResult, PLUS_ONE_MINUTE);
+
+  assert.equal(outcome.incident, null);
+  assert.equal(outcome.notification, null);
+  assert.equal(await store.getActive(errorResult.serverId), null);
+});
+
+test('warning resolves an open error silently without pending recovery', async (t) => {
+  const { store, manager } = await fixture(t);
+  const opened = await openIncident(manager);
+  await manager.markDelivery(opened.id, 'opened', PLUS_ONE_MINUTE, true);
+
+  const outcome = await manager.record(warningResult, PLUS_TWO_MINUTES);
+
+  assert.equal(outcome.incident.status, 'resolved');
+  assert.equal(outcome.incident.resolution_reason, 'warning');
+  assert.equal(outcome.incident.recovery_notified_at, PLUS_TWO_MINUTES);
+  assert.equal(outcome.notification, null);
+  assert.equal(await store.getPendingRecovery(errorResult.serverId), null);
 });
 
 test('one failure creates pending state and recovery deletes it', async (t) => {
@@ -267,4 +327,90 @@ test('listRecent clamps storage output to confirmed incidents', async (t) => {
   await manager.record(errorResult, NOW);
 
   assert.deepEqual(await store.listRecent(20), []);
+});
+
+test('server history filters confirmed incidents before pagination', async (t) => {
+  const { db, store } = await fixture(t);
+  const insertIncident = (values) =>
+    run(
+      db,
+      `
+        INSERT INTO health_incidents (
+          server_id, server_name, status, first_failed_at, last_failed_at,
+          opened_at, resolved_at, resolution_reason, consecutive_failures,
+          last_error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        values.serverId,
+        values.serverName,
+        values.status,
+        values.firstFailedAt,
+        values.firstFailedAt,
+        values.firstFailedAt,
+        values.resolvedAt,
+        values.reason,
+        2,
+        JSON.stringify(values.error)
+      ]
+    );
+
+  await insertIncident({
+    serverId: 1,
+    serverName: 'Magma Nodo 1',
+    status: 'resolved',
+    firstFailedAt: '2026-07-28T10:00:00.000Z',
+    resolvedAt: '2026-07-28T10:02:00.000Z',
+    reason: 'recovered',
+    error: { message: 'DB newer', components: ['Database'] }
+  });
+  await insertIncident({
+    serverId: 1,
+    serverName: 'Magma Nodo 1',
+    status: 'resolved',
+    firstFailedAt: '2026-07-27T10:00:00.000Z',
+    resolvedAt: '2026-07-27T10:03:00.000Z',
+    reason: 'warning',
+    error: { message: 'DB older', components: ['Database'] }
+  });
+  await insertIncident({
+    serverId: 2,
+    serverName: 'Other',
+    status: 'resolved',
+    firstFailedAt: '2026-07-30T10:00:00.000Z',
+    resolvedAt: '2026-07-30T10:01:00.000Z',
+    reason: 'recovered',
+    error: { message: 'Other DB', components: ['Database'] }
+  });
+  await insertIncident({
+    serverId: 1,
+    serverName: 'Magma Nodo 1',
+    status: 'pending',
+    firstFailedAt: '2026-07-31T10:00:00.000Z',
+    resolvedAt: null,
+    reason: null,
+    error: { message: 'Pending DB', components: ['Database'] }
+  });
+
+  const firstPage = await store.listForServer(1, {
+    limit: 1,
+    offset: 0,
+    status: 'resolved',
+    component: 'Database',
+    from: '2026-07-27T00:00:00.000Z'
+  });
+  const secondPage = await store.listForServer(1, {
+    limit: 1,
+    offset: 1,
+    status: 'resolved',
+    component: 'Database',
+    from: '2026-07-27T00:00:00.000Z'
+  });
+
+  assert.equal(firstPage.total, 2);
+  assert.equal(firstPage.items.length, 1);
+  assert.equal(firstPage.items[0].last_error.message, 'DB newer');
+  assert.equal(secondPage.total, 2);
+  assert.equal(secondPage.items[0].last_error.message, 'DB older');
+  assert.equal(firstPage.items[0].server_id, 1);
 });

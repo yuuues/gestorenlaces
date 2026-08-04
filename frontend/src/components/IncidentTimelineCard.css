@@ -1,0 +1,136 @@
+.incident-timeline-card {
+  --incident-accent: #16a34a;
+  --incident-soft: #f0fdf4;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid var(--incident-accent);
+  border-radius: 9px;
+  padding: 16px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+  color: #334155;
+}
+
+.incident-timeline-card.open {
+  --incident-accent: #dc2626;
+  --incident-soft: #fef2f2;
+}
+
+.incident-timeline-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.incident-timeline-header h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.incident-state {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.incident-state.open {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.incident-state.resolved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.incident-diagnostic {
+  margin: 14px 0;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.incident-timeline {
+  list-style: none;
+  margin: 0 0 12px 7px;
+  padding: 0 0 0 18px;
+  border-left: 2px solid #cbd5e1;
+}
+
+.incident-timeline li {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 0 0 14px;
+}
+
+.incident-timeline li:last-child {
+  padding-bottom: 0;
+}
+
+.incident-timeline li::before {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: -23px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #dc2626;
+  box-shadow: 0 0 0 1px #dc2626;
+}
+
+.incident-timeline li.recovered::before {
+  background: #16a34a;
+  box-shadow: 0 0 0 1px #16a34a;
+}
+
+.incident-timeline li.warning::before {
+  background: #d97706;
+  box-shadow: 0 0 0 1px #d97706;
+}
+
+.incident-timeline li.ongoing::before {
+  background: #fff;
+  box-shadow: 0 0 0 1px #dc2626;
+}
+
+.incident-timeline strong {
+  color: #334155;
+  font-size: 13px;
+}
+
+.incident-timeline span {
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.incident-timeline-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .incident-timeline-card {
+    padding: 14px;
+  }
+
+  .incident-timeline-header {
+    gap: 10px;
+  }
+}
