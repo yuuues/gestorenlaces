@@ -88,6 +88,36 @@ const safeIncidentLimit = (value) => {
   return Math.min(100, Math.max(1, parsed));
 };
 
+const clampInteger = (value, fallback, min, max) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const serverHistoryFilters = (query, now) => {
+  const days = clampInteger(query.days, 0, 0, 3650);
+  return {
+    limit: clampInteger(query.limit, 20, 1, 50),
+    offset: clampInteger(
+      query.offset,
+      0,
+      0,
+      Number.MAX_SAFE_INTEGER
+    ),
+    status: ['open', 'resolved'].includes(query.status)
+      ? query.status
+      : null,
+    component:
+      typeof query.component === 'string'
+        ? query.component.trim().slice(0, 100)
+        : '',
+    from:
+      days > 0
+        ? new Date(now.getTime() - days * 86400000).toISOString()
+        : null
+  };
+};
+
 const registerRoutes = (
   app,
   db,
@@ -113,6 +143,29 @@ const registerRoutes = (
       res.json(incidents);
     } catch (error) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/health/servers/:id/incidents', async (req, res) => {
+    try {
+      const serverId = Number.parseInt(req.params.id, 10);
+      const server = Number.isInteger(serverId)
+        ? await dbGet(db, 'SELECT id FROM servers WHERE id = ?', [
+            serverId
+          ])
+        : null;
+      if (!server) {
+        return res.status(404).json({ error: 'Server not found' });
+      }
+
+      return res.json(
+        await incidentManager.listForServer(
+          serverId,
+          serverHistoryFilters(req.query, now())
+        )
+      );
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
     }
   });
 
@@ -296,5 +349,6 @@ exports.routes = [
   { path: '/api/health/servers/:id', methods: ['PUT', 'DELETE'] },
   { path: '/api/health/status', methods: ['GET'] },
   { path: '/api/health/incidents', methods: ['GET'] },
+  { path: '/api/health/servers/:id/incidents', methods: ['GET'] },
   { path: '/api/health/check', methods: ['GET', 'POST'] }
 ];

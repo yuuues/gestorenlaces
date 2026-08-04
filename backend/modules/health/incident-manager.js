@@ -136,11 +136,15 @@ const createIncidentManager = ({
 
   const listRecent = (limit) => store.listRecent(limit);
 
+  const listForServer = (serverId, filters) =>
+    store.listForServer(serverId, filters);
+
   return {
     record,
     markDelivery,
     closeForRemovedServer,
-    listRecent
+    listRecent,
+    listForServer
   };
 };
 

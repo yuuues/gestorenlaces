@@ -64,10 +64,20 @@ const createFixture = async (t) => {
   };
   const incidentManager = {
     requestedLimit: null,
+    requestedHistory: null,
     closed: null,
     listRecent: async (limit) => {
       incidentManager.requestedLimit = limit;
       return [{ id: 1, status: 'open' }];
+    },
+    listForServer: async (serverId, filters) => {
+      incidentManager.requestedHistory = { serverId, filters };
+      return {
+        items: [{ id: 7, server_id: serverId, status: 'resolved' }],
+        total: 1,
+        limit: filters.limit,
+        offset: filters.offset
+      };
     },
     closeForRemovedServer: async (serverId, now) => {
       incidentManager.closed = {
@@ -203,6 +213,54 @@ test('incidents endpoint clamps limit to one through one hundred', async (t) => 
   assert.equal(response.status, 200);
   assert.equal(incidentManager.requestedLimit, 100);
   assert.equal(body[0].status, 'open');
+});
+
+test('server incident history validates filters before querying', async (t) => {
+  const { db, incidentManager, baseUrl } = await createFixture(t);
+  const inserted = await run(
+    db,
+    'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
+    ['Magma', 'https://magma.example/health', 'Principal']
+  );
+
+  const response = await fetch(
+    `${baseUrl}/api/health/servers/${inserted.lastID}/incidents` +
+      '?limit=999&offset=-5&status=resolved&days=30&component=db'
+  );
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(incidentManager.requestedHistory, {
+    serverId: inserted.lastID,
+    filters: {
+      limit: 50,
+      offset: 0,
+      status: 'resolved',
+      component: 'db',
+      from: '2026-06-28T10:00:00.000Z'
+    }
+  });
+  assert.deepEqual(body, {
+    items: [
+      { id: 7, server_id: inserted.lastID, status: 'resolved' }
+    ],
+    total: 1,
+    limit: 50,
+    offset: 0
+  });
+});
+
+test('server incident history returns 404 for an unknown server', async (t) => {
+  const { incidentManager, baseUrl } = await createFixture(t);
+
+  const response = await fetch(
+    `${baseUrl}/api/health/servers/9999/incidents`
+  );
+
+  assert.equal(response.status, 404);
+  assert.match(response.headers.get('content-type'), /application\/json/);
+  assert.deepEqual(await response.json(), { error: 'Server not found' });
+  assert.equal(incidentManager.requestedHistory, null);
 });
 
 test('deleting a server closes its incident as monitor_removed', async (t) => {
