@@ -3,6 +3,10 @@ const createHealthMonitor = ({
   check,
   incidentManager,
   notifier,
+  statusHistory = {
+    record: async () => {},
+    prune: async () => {}
+  },
   intervalMs = 60000,
   timeoutMs = 5000,
   now = () => new Date(),
@@ -69,6 +73,25 @@ const createHealthMonitor = ({
         }
       })
     );
+
+    for (const result of results) {
+      try {
+        await statusHistory.record(
+          result.serverId,
+          result.status,
+          checkedAt
+        );
+      } catch (error) {
+        logger.error(
+          `Health status history write failed: ${error.message}`
+        );
+      }
+    }
+    try {
+      await statusHistory.prune(checkedAt);
+    } catch (error) {
+      logger.error(`Health status history prune failed: ${error.message}`);
+    }
 
     const nextSnapshot = {};
     const deliveries = [];

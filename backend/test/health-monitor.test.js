@@ -12,6 +12,11 @@ const serverB = {
   name: 'Database',
   url: 'https://db.example/health'
 };
+const serverC = {
+  id: 3,
+  name: 'Queue',
+  url: 'https://queue.example/health'
+};
 const okA = {
   serverId: 1,
   name: 'API',
@@ -31,6 +36,23 @@ const errorB = {
   components: {},
   error: { kind: 'network', message: 'refused', components: [] },
   info: { connection: 'refused' }
+};
+const warningB = {
+  ...errorB,
+  status: 'warning',
+  error: null,
+  warning: {
+    kind: 'component',
+    message: 'Components warning: database',
+    components: ['database']
+  },
+  info: { connection: 'Components warning: database' }
+};
+const errorC = {
+  ...errorB,
+  serverId: 3,
+  name: 'Queue',
+  url: serverC.url
 };
 const incident = {
   id: 9,
@@ -65,6 +87,10 @@ const makeMonitor = (overrides = {}) =>
       record: async () => ({ incident: null, notification: null }),
       markDelivery: async () => {}
     },
+    statusHistory: {
+      record: async () => {},
+      prune: async () => {}
+    },
     notifier: { send: async () => ({ delivered: true }) },
     intervalMs: 60000,
     timeoutMs: 5000,
@@ -98,6 +124,69 @@ test('checks all servers concurrently and publishes one snapshot', async () => {
   assert.equal(status.running, false);
   assert.deepEqual(Object.keys(status.servers).sort(), ['API', 'Database']);
   assert.equal(status.servers.Database.status, 'error');
+});
+
+test('records every normalized severity and prunes once after a round', async () => {
+  const recorded = [];
+  const pruned = [];
+  const monitor = makeMonitor({
+    listServers: async () => [serverA, serverB, serverC],
+    check: async (server) => {
+      if (server.id === 1) return okA;
+      if (server.id === 2) return warningB;
+      return errorC;
+    },
+    statusHistory: {
+      record: async (...args) => recorded.push(args),
+      prune: async (...args) => pruned.push(args)
+    }
+  });
+
+  await monitor.runNow();
+
+  assert.deepEqual(recorded, [
+    [1, 'ok', '2026-07-28T10:00:00.000Z'],
+    [2, 'warning', '2026-07-28T10:00:00.000Z'],
+    [3, 'error', '2026-07-28T10:00:00.000Z']
+  ]);
+  assert.deepEqual(pruned, [['2026-07-28T10:00:00.000Z']]);
+});
+
+test('status-history failures do not break snapshots or incidents', async () => {
+  const messages = [];
+  let incidentCalls = 0;
+  const monitor = makeMonitor({
+    statusHistory: {
+      record: async () => {
+        throw new Error('history unavailable');
+      },
+      prune: async () => {
+        throw new Error('prune unavailable');
+      }
+    },
+    incidentManager: {
+      record: async () => {
+        incidentCalls += 1;
+        return { incident: null, notification: null };
+      },
+      markDelivery: async () => {}
+    },
+    logger: {
+      info() {},
+      warn() {},
+      error: (message) => messages.push(message)
+    }
+  });
+
+  await monitor.runNow();
+
+  assert.equal(monitor.getStatus().servers.API.status, 'ok');
+  assert.equal(monitor.getStatus().lastError, null);
+  assert.equal(incidentCalls, 1);
+  assert.deepEqual(messages, [
+    'Health status history write failed: history unavailable',
+    'Health status history prune failed: prune unavailable'
+  ]);
 });
 
 test('overlapping runNow calls share the exact active promise', async () => {

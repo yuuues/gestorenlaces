@@ -136,7 +136,14 @@ const statusHistoryOptions = (query, now) => {
 const registerRoutes = (
   app,
   db,
-  { monitor, incidentManager, statusHistoryService, now, logger }
+  {
+    monitor,
+    incidentManager,
+    statusHistoryStore,
+    statusHistoryService,
+    now,
+    logger
+  }
 ) => {
   app.get('/api/health/servers', async (_req, res) => {
     try {
@@ -276,9 +283,14 @@ const registerRoutes = (
         );
         if (!current) return null;
 
+        const removedAt = now().toISOString();
         await incidentManager.closeForRemovedServer(
           current.id,
-          now().toISOString()
+          removedAt
+        );
+        await statusHistoryStore.closeForRemovedServer(
+          current.id,
+          removedAt
         );
         await dbRun(db, 'DELETE FROM servers WHERE id = ?', [current.id]);
         return current;
@@ -344,6 +356,7 @@ const createHealthModule = (app, db, overrides = {}) => {
       check,
       incidentManager,
       notifier,
+      statusHistory: statusHistoryStore,
       intervalMs: config.intervalMs,
       timeoutMs: config.timeoutMs,
       now,
@@ -353,6 +366,7 @@ const createHealthModule = (app, db, overrides = {}) => {
   registerRoutes(app, db, {
     monitor,
     incidentManager,
+    statusHistoryStore,
     statusHistoryService,
     now,
     logger

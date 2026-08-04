@@ -90,7 +90,10 @@ const createFixture = async (t) => {
   const incidentStore = { ensureSchema: async () => {} };
   const statusHistoryStore = {
     ensureSchema: async () => {},
-    closeForRemovedServer: async () => {}
+    closed: [],
+    closeForRemovedServer: async (...args) => {
+      statusHistoryStore.closed.push(args);
+    }
   };
   const statusHistoryService = {
     calls: [],
@@ -352,8 +355,14 @@ test('server incident history returns 404 for an unknown server', async (t) => {
   assert.equal(incidentManager.requestedHistory, null);
 });
 
-test('deleting a server closes its incident as monitor_removed', async (t) => {
-  const { db, monitor, incidentManager, baseUrl } = await createFixture(t);
+test('deleting a server closes its incident and active status period', async (t) => {
+  const {
+    db,
+    monitor,
+    incidentManager,
+    statusHistoryStore,
+    baseUrl
+  } = await createFixture(t);
   const inserted = await run(
     db,
     'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
@@ -374,5 +383,8 @@ test('deleting a server closes its incident as monitor_removed', async (t) => {
     reason: 'monitor_removed',
     at: '2026-07-28T10:00:00.000Z'
   });
+  assert.deepEqual(statusHistoryStore.closed, [
+    [inserted.lastID, '2026-07-28T10:00:00.000Z']
+  ]);
   assert.equal(monitor.mutationCount, 1);
 });
