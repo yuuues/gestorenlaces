@@ -1,4 +1,5 @@
 .server-health-container {
+  box-sizing: border-box;
   width: min(1240px, 100%);
   margin: 0 auto;
   padding: 20px;
@@ -6,10 +7,22 @@
 
 .server-health-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
+}
+
+.server-health-heading,
+.server-health-title-line {
+  min-width: 0;
+}
+
+.server-health-title-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .server-health-header h2 {
@@ -19,10 +32,13 @@
   letter-spacing: -0.025em;
 }
 
-.server-health-subtitle {
-  margin: 5px 0 0;
+.monitor-metadata {
+  display: flex;
+  gap: 6px 16px;
+  flex-wrap: wrap;
+  margin-top: 5px;
   color: #64748b;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .refresh-controls {
@@ -86,20 +102,6 @@
 .server-card-history-link:focus-visible {
   outline: 3px solid rgba(53, 108, 165, 0.3);
   outline-offset: 3px;
-}
-
-.monitor-summary {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-  padding: 13px 16px;
-  border: 1px solid #e1e6ec;
-  border-radius: 8px;
-  background: #f7f9fb;
-  color: #536174;
-  font-size: 13px;
 }
 
 .monitor-badge {

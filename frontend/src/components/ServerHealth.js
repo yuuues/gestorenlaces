@@ -223,6 +223,11 @@ const ServerHealth = () => {
         ? 'degraded'
         : 'active'
       : 'stopped');
+  const monitorAlert = monitorState === 'degraded'
+    ? { className: 'degraded', label: 'Monitor degradado' }
+    : ['stopped', 'unavailable'].includes(monitorState)
+      ? { className: 'unavailable', label: 'Monitor no disponible' }
+      : null;
 
   if (loading) {
     return <div className="loading">Cargando estado del monitor...</div>;
@@ -231,11 +236,25 @@ const ServerHealth = () => {
   return (
     <div className="server-health-container">
       <div className="server-health-header">
-        <div>
-          <h2>Control de servicios</h2>
-          <p className="server-health-subtitle">
-            Estado actual y evolución durante las últimas 24 horas
-          </p>
+        <div className="server-health-heading">
+          <div className="server-health-title-line">
+            <h2>Control de servicios</h2>
+            {monitorAlert && (
+              <span className={`monitor-badge ${monitorAlert.className}`}>
+                {monitorAlert.label}
+              </span>
+            )}
+          </div>
+          <div className="monitor-metadata" aria-label="Estado del monitor">
+            <span>
+              <strong>Última comprobación:</strong>{' '}
+              {formatTimestamp(monitorStatus.lastRunAt)}
+            </span>
+            <span>
+              <strong>Próxima comprobación:</strong>{' '}
+              {formatTimestamp(monitorStatus.nextRunAt)}
+            </span>
+          </div>
         </div>
         <div className="refresh-controls">
           {editMode && (
@@ -255,26 +274,6 @@ const ServerHealth = () => {
           )}
         </div>
       </div>
-
-      <section className="monitor-summary" aria-label="Estado del monitor">
-        <span className={`monitor-badge ${monitorState}`}>
-          {monitorStatus.running
-            ? 'Comprobando servicios'
-            : monitorState === 'degraded'
-              ? 'Monitor degradado'
-              : monitorState === 'active'
-                ? 'Monitor activo'
-                : 'Monitor no disponible'}
-        </span>
-        <span>
-          <strong>Última comprobación:</strong>{' '}
-          {formatTimestamp(monitorStatus.lastRunAt)}
-        </span>
-        <span>
-          <strong>Próxima comprobación:</strong>{' '}
-          {formatTimestamp(monitorStatus.nextRunAt)}
-        </span>
-      </section>
 
       {error && <div className="error-message compact">{error}</div>}
       {monitorStatus.lastError && (

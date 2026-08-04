@@ -142,8 +142,13 @@ test('shows one 24-hour row without healthy check or incident detail', async () 
 
   const { container } = renderHealth();
 
-  expect(await screen.findByText('Monitor activo')).toBeInTheDocument();
-  expect(screen.getByText('Magma Nodo 1')).toBeInTheDocument();
+  expect(await screen.findByText('Magma Nodo 1')).toBeInTheDocument();
+  expect(screen.queryByText('Monitor activo')).not.toBeInTheDocument();
+  expect(screen.getByText(/Última comprobación:/)).toBeInTheDocument();
+  expect(screen.getByText(/Próxima comprobación:/)).toBeInTheDocument();
+  expect(
+    screen.queryByText(/Estado actual y evolución/i)
+  ).not.toBeInTheDocument();
   expect(screen.getByText('Operativo')).toBeInTheDocument();
   expect(screen.getByText('Últimas 24 horas')).toBeInTheDocument();
   expect(
