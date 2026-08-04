@@ -88,6 +88,26 @@ const createFixture = async (t) => {
     }
   };
   const incidentStore = { ensureSchema: async () => {} };
+  const statusHistoryStore = {
+    ensureSchema: async () => {},
+    closeForRemovedServer: async () => {}
+  };
+  const statusHistoryService = {
+    calls: [],
+    getHistory: async (serverIds, options) => {
+      statusHistoryService.calls.push({ serverIds, options });
+      return {
+        from: options.from,
+        to: options.to,
+        bucketMinutes: options.bucketMinutes,
+        servers: serverIds.map((serverId) => ({
+          serverId,
+          availabilityPercent: null,
+          buckets: []
+        }))
+      };
+    }
+  };
 
   const app = express();
   app.use(express.json());
@@ -95,6 +115,8 @@ const createFixture = async (t) => {
     monitor,
     incidentManager,
     incidentStore,
+    statusHistoryStore,
+    statusHistoryService,
     logger: silentLogger,
     now: () => new Date('2026-07-28T10:00:00.000Z')
   });
@@ -110,7 +132,14 @@ const createFixture = async (t) => {
     await closeDb(db);
   });
 
-  return { db, monitor, incidentManager, baseUrl };
+  return {
+    db,
+    monitor,
+    incidentManager,
+    statusHistoryStore,
+    statusHistoryService,
+    baseUrl
+  };
 };
 
 test('invalid environment values use safe defaults without logging secrets', () => {
@@ -213,6 +242,66 @@ test('incidents endpoint clamps limit to one through one hundred', async (t) => 
   assert.equal(response.status, 200);
   assert.equal(incidentManager.requestedLimit, 100);
   assert.equal(body[0].status, 'open');
+});
+
+test('bulk status history uses all configured servers and 24-hour defaults', async (t) => {
+  const { db, statusHistoryService, baseUrl } = await createFixture(t);
+  const first = await run(
+    db,
+    'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
+    ['Magma 1', 'https://magma-1.example/health', 'Principal']
+  );
+  const second = await run(
+    db,
+    'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
+    ['Magma 2', 'https://magma-2.example/health', 'Secundario']
+  );
+
+  const response = await fetch(`${baseUrl}/api/health/status-history`);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(statusHistoryService.calls, [
+    {
+      serverIds: [first.lastID, second.lastID],
+      options: {
+        from: '2026-07-27T10:00:00.000Z',
+        to: '2026-07-28T10:00:00.000Z',
+        bucketMinutes: 15
+      }
+    }
+  ]);
+  assert.equal(body.bucketMinutes, 15);
+  assert.deepEqual(
+    body.servers.map(({ serverId }) => serverId),
+    [first.lastID, second.lastID]
+  );
+});
+
+test('bulk status history validates its window and bucket size', async (t) => {
+  const { statusHistoryService, baseUrl } = await createFixture(t);
+
+  const clamped = await fetch(
+    `${baseUrl}/api/health/status-history?hours=999&bucketMinutes=17`
+  );
+  const accepted = await fetch(
+    `${baseUrl}/api/health/status-history?hours=1&bucketMinutes=30`
+  );
+
+  assert.equal(clamped.status, 200);
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(statusHistoryService.calls.map(({ options }) => options), [
+    {
+      from: '2026-07-21T10:00:00.000Z',
+      to: '2026-07-28T10:00:00.000Z',
+      bucketMinutes: 15
+    },
+    {
+      from: '2026-07-28T09:00:00.000Z',
+      to: '2026-07-28T10:00:00.000Z',
+      bucketMinutes: 30
+    }
+  ]);
 });
 
 test('server incident history validates filters before querying', async (t) => {

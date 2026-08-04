@@ -6,6 +6,8 @@ const { checkServer } = require('./checker');
 const { readHealthConfig } = require('./config');
 const { createIncidentStore } = require('./incident-store');
 const { createIncidentManager } = require('./incident-manager');
+const { createStatusHistoryStore } = require('./status-history-store');
+const { createStatusHistoryService } = require('./status-history');
 const { createTeamsNotifier } = require('./teams-notifier');
 const { createHealthMonitor } = require('./monitor');
 
@@ -118,10 +120,23 @@ const serverHistoryFilters = (query, now) => {
   };
 };
 
+const statusHistoryOptions = (query, now) => {
+  const hours = clampInteger(query.hours, 24, 1, 168);
+  const requestedBucketMinutes = Number.parseInt(query.bucketMinutes, 10);
+  const bucketMinutes = [5, 15, 30, 60].includes(requestedBucketMinutes)
+    ? requestedBucketMinutes
+    : 15;
+  return {
+    from: new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString(),
+    to: now.toISOString(),
+    bucketMinutes
+  };
+};
+
 const registerRoutes = (
   app,
   db,
-  { monitor, incidentManager, now, logger }
+  { monitor, incidentManager, statusHistoryService, now, logger }
 ) => {
   app.get('/api/health/servers', async (_req, res) => {
     try {
@@ -134,6 +149,20 @@ const registerRoutes = (
   const sendStatus = (_req, res) => res.json(monitor.getStatus());
   app.get('/api/health/status', sendStatus);
   app.get('/api/health/check', sendStatus);
+
+  app.get('/api/health/status-history', async (req, res) => {
+    try {
+      const servers = await dbAll(db, 'SELECT id FROM servers ORDER BY id');
+      return res.json(
+        await statusHistoryService.getHistory(
+          servers.map(({ id }) => id),
+          statusHistoryOptions(req.query, now())
+        )
+      );
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  });
 
   app.get('/api/health/incidents', async (req, res) => {
     try {
@@ -278,6 +307,18 @@ const createHealthModule = (app, db, overrides = {}) => {
       failureThreshold: config.failureThreshold,
       reminderMs: config.reminderMs
     });
+  const statusHistoryStore =
+    overrides.statusHistoryStore ||
+    createStatusHistoryStore(db, {
+      intervalMs: config.intervalMs,
+      retentionMs: 7 * 24 * 60 * 60 * 1000
+    });
+  const statusHistoryService =
+    overrides.statusHistoryService ||
+    createStatusHistoryService({
+      store: statusHistoryStore,
+      coverageMs: config.intervalMs
+    });
   const notifier =
     overrides.notifier ||
     createTeamsNotifier({
@@ -312,6 +353,7 @@ const createHealthModule = (app, db, overrides = {}) => {
   registerRoutes(app, db, {
     monitor,
     incidentManager,
+    statusHistoryService,
     now,
     logger
   });
@@ -319,6 +361,7 @@ const createHealthModule = (app, db, overrides = {}) => {
   const ready = (async () => {
     await prepareServers(db, logger);
     await incidentStore.ensureSchema();
+    await statusHistoryStore.ensureSchema();
     await monitor.start();
   })();
 
@@ -327,6 +370,8 @@ const createHealthModule = (app, db, overrides = {}) => {
     ready,
     incidentStore,
     incidentManager,
+    statusHistoryStore,
+    statusHistoryService,
     notifier,
     config
   };
@@ -348,6 +393,7 @@ exports.routes = [
   { path: '/api/health/servers', methods: ['GET', 'POST'] },
   { path: '/api/health/servers/:id', methods: ['PUT', 'DELETE'] },
   { path: '/api/health/status', methods: ['GET'] },
+  { path: '/api/health/status-history', methods: ['GET'] },
   { path: '/api/health/incidents', methods: ['GET'] },
   { path: '/api/health/servers/:id/incidents', methods: ['GET'] },
   { path: '/api/health/check', methods: ['GET', 'POST'] }
