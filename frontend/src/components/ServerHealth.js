@@ -312,26 +312,36 @@ const ServerHealth = () => {
                       <span>Comprobado: {formatTimestamp(serverData.checkedAt)}</span>
                     </p>
                   </div>
-                  {editMode && record && (
-                    <span className="server-actions">
-                      <button
-                        className="icon-button"
-                        onClick={() => openEdit(record)}
-                        title="Editar"
-                        aria-label={`Editar ${record.name}`}
+                  <div className="server-header-actions">
+                    {serverId && (
+                      <Link
+                        className="server-card-history-link"
+                        to={`/health/servers/${serverId}/history`}
                       >
-                        <FontAwesomeIcon icon={faPenToSquare} />
-                      </button>
-                      <button
-                        className="icon-button delete"
-                        onClick={() => handleDelete(record)}
-                        title="Eliminar"
-                        aria-label={`Eliminar ${record.name}`}
-                      >
-                        <FontAwesomeIcon icon={faTrash} />
-                      </button>
-                    </span>
-                  )}
+                        Ver histórico
+                      </Link>
+                    )}
+                    {editMode && record && (
+                      <span className="server-actions">
+                        <button
+                          className="icon-button"
+                          onClick={() => openEdit(record)}
+                          title="Editar"
+                          aria-label={`Editar ${record.name}`}
+                        >
+                          <FontAwesomeIcon icon={faPenToSquare} />
+                        </button>
+                        <button
+                          className="icon-button delete"
+                          onClick={() => handleDelete(record)}
+                          title="Eliminar"
+                          aria-label={`Eliminar ${record.name}`}
+                        >
+                          <FontAwesomeIcon icon={faTrash} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
                 </header>
 
                 <ServerStatusStrip
@@ -340,16 +350,6 @@ const ServerHealth = () => {
                 />
                 <CurrentCheckIssues server={serverData} />
 
-                {serverId && (
-                  <footer className="server-row-footer">
-                    <Link
-                      className="server-card-history-link"
-                      to={`/health/servers/${serverId}/history`}
-                    >
-                      Ver histórico
-                    </Link>
-                  </footer>
-                )}
               </article>
             );
           })}

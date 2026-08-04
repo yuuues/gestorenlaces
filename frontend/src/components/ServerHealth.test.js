@@ -165,10 +165,33 @@ test('shows one 24-hour row without healthy check or incident detail', async () 
 
 test('keeps navigation to the dedicated incident history', async () => {
   prepareApi();
-  renderHealth();
+  const { container } = renderHealth();
 
   const link = await screen.findByRole('link', { name: 'Ver histórico' });
   expect(link).toHaveAttribute('href', '/health/servers/1/history');
+  expect(link.closest('.server-header-actions')).toBeInTheDocument();
+  expect(container.querySelector('.server-row-footer')).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Editar Magma Nodo 1' })
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: 'Eliminar Magma Nodo 1' })
+  ).not.toBeInTheDocument();
+});
+
+test('groups history and edit actions in the server header for admins', async () => {
+  mockEditMode = true;
+  prepareApi();
+  renderHealth();
+
+  const actions = (await screen.findByRole('link', { name: 'Ver histórico' }))
+    .closest('.server-header-actions');
+  expect(
+    within(actions).getByRole('button', { name: 'Editar Magma Nodo 1' })
+  ).toBeInTheDocument();
+  expect(
+    within(actions).getByRole('button', { name: 'Eliminar Magma Nodo 1' })
+  ).toBeInTheDocument();
 });
 
 test('shows warning checks in yellow while hiding healthy checks', async () => {
