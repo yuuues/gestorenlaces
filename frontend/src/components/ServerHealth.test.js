@@ -121,6 +121,50 @@ test('shows autonomous monitor metadata and the latest server state', async () =
   expect(screen.getByText('Conexión validada')).toBeInTheDocument();
 });
 
+test('shows warning badges and expands the warning component details', async () => {
+  prepareApi({
+    snapshot: {
+      ...healthySnapshot,
+      servers: {
+        'Magma Nodo 1': {
+          ...healthySnapshot.servers['Magma Nodo 1'],
+          status: 'warning',
+          warning: {
+            kind: 'component',
+            message: 'Components warning: db',
+            components: ['db']
+          },
+          info: { connection: 'Components warning: db' },
+          components: {
+            db: {
+              name: 'db',
+              status: 'warning',
+              errors: [
+                {
+                  severity: 'warning',
+                  message: 'Bloqueo en BD: 1 sesión bloqueada.'
+                }
+              ],
+              info: { bloqueos_sesiones: '1' }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  render(<ServerHealth />);
+
+  expect(await screen.findByText('Components warning: db')).toBeInTheDocument();
+  expect(screen.getAllByText('Aviso')).toHaveLength(2);
+  expect(
+    await screen.findByText('Bloqueo en BD: 1 sesión bloqueada.')
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText(/Incidencia (abierta|resuelta)/i)
+  ).not.toBeInTheDocument();
+});
+
 test('has no browser Start or Stop monitoring controls', async () => {
   prepareApi();
 
@@ -175,18 +219,14 @@ test('shows the open incident stored for a server', async () => {
 
   render(<ServerHealth />);
 
-  expect(await screen.findByText('Incidencia abierta')).toBeInTheDocument();
+  expect(
+    await screen.findByRole('heading', { name: 'Incidencia de Database' })
+  ).toBeInTheDocument();
+  expect(screen.getByText('Abierta')).toBeInTheDocument();
   expect(screen.getByText('Components failed: Database')).toBeInTheDocument();
   expect(screen.getByText(/16 fallos consecutivos/)).toBeInTheDocument();
-  expect(screen.getByText('Inicio:').closest('p')).toHaveTextContent(
-    `Inicio: ${new Date(openIncident.first_failed_at).toLocaleString('es-ES')}`
-  );
-  expect(screen.getByText('Fin:').closest('p')).toHaveTextContent(
-    'Fin: En curso'
-  );
-  expect(screen.getByText('Subcheck:').closest('p')).toHaveTextContent(
-    'Subcheck: Database'
-  );
+  expect(screen.getByText('Error detectado')).toBeInTheDocument();
+  expect(screen.getByText('En curso')).toBeInTheDocument();
 });
 
 test('shows start and end timing for a resolved incident', async () => {
@@ -199,23 +239,12 @@ test('shows start and end timing for a resolved incident', async () => {
 
   render(<ServerHealth />);
 
-  expect(
-    await screen.findByText('Última incidencia resuelta')
-  ).toBeInTheDocument();
-  expect(screen.getByText('Inicio:').closest('p')).toHaveTextContent(
-    `Inicio: ${new Date(resolvedIncident.first_failed_at).toLocaleString(
-      'es-ES'
-    )}`
-  );
-  expect(screen.getByText('Fin:').closest('p')).toHaveTextContent(
-    `Fin: ${new Date(resolvedIncident.resolved_at).toLocaleString('es-ES')}`
-  );
-  expect(screen.getByText('Subcheck:').closest('p')).toHaveTextContent(
-    'Subcheck: Database'
-  );
+  expect(await screen.findByText('Resuelta')).toBeInTheDocument();
+  expect(screen.getByText('Error detectado')).toBeInTheDocument();
+  expect(screen.getByText('Servicio recuperado')).toBeInTheDocument();
 });
 
-test('does not show a subcheck for a failure without failed components', async () => {
+test('uses the server name for a failure without failed components', async () => {
   prepareApi({
     incidents: [
       {
@@ -231,8 +260,11 @@ test('does not show a subcheck for a failure without failed components', async (
 
   render(<ServerHealth />);
 
-  expect(await screen.findByText('Incidencia abierta')).toBeInTheDocument();
-  expect(screen.queryByText(/Subcheck:/)).not.toBeInTheDocument();
+  expect(
+    await screen.findByRole('heading', {
+      name: 'Incidencia de Magma Nodo 1'
+    })
+  ).toBeInTheDocument();
 });
 
 test('reports an unavailable monitor without hiding configured servers', async () => {

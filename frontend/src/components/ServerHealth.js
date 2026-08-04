@@ -8,6 +8,7 @@ import {
 } from '../api';
 import { useEditMode } from '../EditModeContext';
 import ServerForm from './ServerForm';
+import IncidentTimelineCard from './IncidentTimelineCard';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBolt,
@@ -17,6 +18,7 @@ import {
   faPenToSquare,
   faPlus,
   faSync,
+  faTriangleExclamation,
   faTimesCircle,
   faTrash
 } from '@fortawesome/free-solid-svg-icons';
@@ -40,15 +42,29 @@ const formatTimestamp = (value) => {
     : date.toLocaleString('es-ES');
 };
 
-const formatDuration = (incident) => {
-  if (!incident?.first_failed_at) return null;
-  const start = Date.parse(incident.first_failed_at);
-  const end = Date.parse(
-    incident.resolved_at || incident.last_failed_at || incident.first_failed_at
-  );
-  if (Number.isNaN(start) || Number.isNaN(end)) return null;
-  const minutes = Math.max(0, Math.round((end - start) / 60000));
-  return minutes < 1 ? 'menos de un minuto' : `${minutes} min`;
+const statusPresentation = (status) => {
+  if (status === 'ok') {
+    return { className: 'status-ok', label: 'OK', icon: faCheckCircle };
+  }
+  if (status === 'warning') {
+    return {
+      className: 'status-warning',
+      label: 'Aviso',
+      icon: faTriangleExclamation
+    };
+  }
+  if (status === 'unknown') {
+    return {
+      className: 'status-unknown',
+      label: 'Pendiente',
+      icon: faTimesCircle
+    };
+  }
+  return {
+    className: 'status-error',
+    label: 'Error',
+    icon: faTimesCircle
+  };
 };
 
 const ServerHealth = () => {
@@ -299,26 +315,19 @@ const ServerHealth = () => {
                       (incident) =>
                         incident.server_id === serverData.serverId
                     );
-              const isOk = serverData.status === 'ok';
-              const isUnknown = serverData.status === 'unknown';
+              const serverStatus = statusPresentation(serverData.status);
 
               return (
                 <article key={serverName} className="server-card">
                   <div className="server-header">
                     <h3>{serverData.name}</h3>
                     <span
-                      className={`status-badge ${
-                        isUnknown
-                          ? 'status-unknown'
-                          : isOk
-                            ? 'status-ok'
-                            : 'status-error'
-                      }`}
+                      className={`status-badge ${serverStatus.className}`}
                     >
                       <FontAwesomeIcon
-                        icon={isOk ? faCheckCircle : faTimesCircle}
+                        icon={serverStatus.icon}
                       />
-                      {isUnknown ? 'Pendiente' : isOk ? 'OK' : 'Error'}
+                      {serverStatus.label}
                     </span>
                     {editMode && record && (
                       <span className="server-actions">
@@ -356,46 +365,10 @@ const ServerHealth = () => {
                   </div>
 
                   {storedIncident && (
-                    <div
-                      className={`incident-summary ${
-                        storedIncident.status === 'resolved'
-                          ? 'resolved'
-                          : ''
-                      }`}
-                    >
-                      <h4>
-                        {storedIncident.status === 'open'
-                          ? 'Incidencia abierta'
-                          : 'Última incidencia resuelta'}
-                      </h4>
-                      <p>{storedIncident.last_error?.message}</p>
-                      <p>
-                        <strong>Inicio:</strong>{' '}
-                        {formatTimestamp(storedIncident.first_failed_at)}
-                      </p>
-                      <p>
-                        <strong>Fin:</strong>{' '}
-                        {storedIncident.status === 'resolved'
-                          ? formatTimestamp(storedIncident.resolved_at)
-                          : 'En curso'}
-                      </p>
-                      {Array.isArray(
-                        storedIncident.last_error?.components
-                      ) &&
-                        storedIncident.last_error.components.length > 0 && (
-                          <p>
-                            <strong>Subcheck:</strong>{' '}
-                            {storedIncident.last_error.components.join(', ')}
-                          </p>
-                        )}
-                      <p>
-                        {storedIncident.consecutive_failures} fallos
-                        consecutivos
-                        {formatDuration(storedIncident)
-                          ? ` · ${formatDuration(storedIncident)}`
-                          : ''}
-                      </p>
-                    </div>
+                    <IncidentTimelineCard
+                      incident={storedIncident}
+                      serverName={serverData.name}
+                    />
                   )}
 
                   {Object.keys(serverData.components || {}).length > 0 && (
@@ -404,7 +377,9 @@ const ServerHealth = () => {
                       {Object.entries(serverData.components).map(
                         ([componentName, componentData]) => {
                           const key = `${serverName}-${componentName}`;
-                          const componentOk = componentData?.status === 'ok';
+                          const componentStatus = statusPresentation(
+                            componentData?.status
+                          );
                           return (
                             <div key={componentName} className="component-item">
                               <button
@@ -422,20 +397,12 @@ const ServerHealth = () => {
                                 </span>
                                 <span className="component-status">
                                   <span
-                                    className={`status-badge ${
-                                      componentOk
-                                        ? 'status-ok'
-                                        : 'status-error'
-                                    }`}
+                                    className={`status-badge ${componentStatus.className}`}
                                   >
                                     <FontAwesomeIcon
-                                      icon={
-                                        componentOk
-                                          ? faCheckCircle
-                                          : faTimesCircle
-                                      }
+                                      icon={componentStatus.icon}
                                     />
-                                    {componentOk ? 'OK' : 'Error'}
+                                    {componentStatus.label}
                                   </span>
                                   <FontAwesomeIcon
                                     icon={
