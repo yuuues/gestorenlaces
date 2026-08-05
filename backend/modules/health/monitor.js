@@ -7,6 +7,9 @@ const createHealthMonitor = ({
     record: async () => {},
     prune: async () => {}
   },
+  componentIncidents = {
+    record: async () => {}
+  },
   intervalMs = 60000,
   timeoutMs = 5000,
   now = () => new Date(),
@@ -91,6 +94,16 @@ const createHealthMonitor = ({
       await statusHistory.prune(checkedAt);
     } catch (error) {
       logger.error(`Health status history prune failed: ${error.message}`);
+    }
+
+    for (const result of results) {
+      try {
+        await componentIncidents.record(result, checkedAt);
+      } catch (error) {
+        logger.error(
+          `Component incident history write failed: ${error.message}`
+        );
+      }
     }
 
     const nextSnapshot = {};

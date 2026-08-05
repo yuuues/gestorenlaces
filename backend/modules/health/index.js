@@ -6,6 +6,12 @@ const { checkServer } = require('./checker');
 const { readHealthConfig } = require('./config');
 const { createIncidentStore } = require('./incident-store');
 const { createIncidentManager } = require('./incident-manager');
+const {
+  createComponentIncidentStore
+} = require('./component-incident-store');
+const {
+  createComponentIncidentManager
+} = require('./component-incident-manager');
 const { createStatusHistoryStore } = require('./status-history-store');
 const { createStatusHistoryService } = require('./status-history');
 const { createTeamsNotifier } = require('./teams-notifier');
@@ -139,6 +145,7 @@ const registerRoutes = (
   {
     monitor,
     incidentManager,
+    componentIncidentManager,
     statusHistoryStore,
     statusHistoryService,
     now,
@@ -195,7 +202,7 @@ const registerRoutes = (
       }
 
       return res.json(
-        await incidentManager.listForServer(
+        await componentIncidentManager.listForServer(
           serverId,
           serverHistoryFilters(req.query, now())
         )
@@ -288,6 +295,10 @@ const registerRoutes = (
           current.id,
           removedAt
         );
+        await componentIncidentManager.closeForRemovedServer(
+          current.id,
+          removedAt
+        );
         await statusHistoryStore.closeForRemovedServer(
           current.id,
           removedAt
@@ -319,6 +330,11 @@ const createHealthModule = (app, db, overrides = {}) => {
       failureThreshold: config.failureThreshold,
       reminderMs: config.reminderMs
     });
+  const componentIncidentStore =
+    overrides.componentIncidentStore || createComponentIncidentStore(db);
+  const componentIncidentManager =
+    overrides.componentIncidentManager ||
+    createComponentIncidentManager({ store: componentIncidentStore });
   const statusHistoryStore =
     overrides.statusHistoryStore ||
     createStatusHistoryStore(db, {
@@ -357,6 +373,7 @@ const createHealthModule = (app, db, overrides = {}) => {
       incidentManager,
       notifier,
       statusHistory: statusHistoryStore,
+      componentIncidents: componentIncidentManager,
       intervalMs: config.intervalMs,
       timeoutMs: config.timeoutMs,
       now,
@@ -366,6 +383,7 @@ const createHealthModule = (app, db, overrides = {}) => {
   registerRoutes(app, db, {
     monitor,
     incidentManager,
+    componentIncidentManager,
     statusHistoryStore,
     statusHistoryService,
     now,
@@ -375,6 +393,7 @@ const createHealthModule = (app, db, overrides = {}) => {
   const ready = (async () => {
     await prepareServers(db, logger);
     await incidentStore.ensureSchema();
+    await componentIncidentStore.ensureSchema();
     await statusHistoryStore.ensureSchema();
     await monitor.start();
   })();
@@ -384,6 +403,8 @@ const createHealthModule = (app, db, overrides = {}) => {
     ready,
     incidentStore,
     incidentManager,
+    componentIncidentStore,
+    componentIncidentManager,
     statusHistoryStore,
     statusHistoryService,
     notifier,

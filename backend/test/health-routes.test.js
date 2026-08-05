@@ -26,6 +26,7 @@ const closeServer = (server) =>
   });
 
 const createFixture = async (t) => {
+  const lifecycleEvents = [];
   const previousAdminKey = process.env.ADMIN_KEY;
   process.env.ADMIN_KEY = 'secret';
   t.after(() => {
@@ -47,6 +48,7 @@ const createFixture = async (t) => {
       servers: {}
     }),
     start: async () => {
+      lifecycleEvents.push('monitor.start');
       monitor.startCount += 1;
       return monitor.getStatus();
     },
@@ -64,20 +66,10 @@ const createFixture = async (t) => {
   };
   const incidentManager = {
     requestedLimit: null,
-    requestedHistory: null,
     closed: null,
     listRecent: async (limit) => {
       incidentManager.requestedLimit = limit;
       return [{ id: 1, status: 'open' }];
-    },
-    listForServer: async (serverId, filters) => {
-      incidentManager.requestedHistory = { serverId, filters };
-      return {
-        items: [{ id: 7, server_id: serverId, status: 'resolved' }],
-        total: 1,
-        limit: filters.limit,
-        offset: filters.offset
-      };
     },
     closeForRemovedServer: async (serverId, now) => {
       incidentManager.closed = {
@@ -87,9 +79,36 @@ const createFixture = async (t) => {
       };
     }
   };
-  const incidentStore = { ensureSchema: async () => {} };
+  const componentIncidentManager = {
+    requestedHistory: null,
+    closed: null,
+    listForServer: async (serverId, filters) => {
+      componentIncidentManager.requestedHistory = { serverId, filters };
+      return {
+        items: [{ id: 7, server_id: serverId, status: 'resolved' }],
+        total: 1,
+        limit: filters.limit,
+        offset: filters.offset
+      };
+    },
+    closeForRemovedServer: async (serverId, now) => {
+      componentIncidentManager.closed = {
+        serverId,
+        reason: 'monitor_removed',
+        at: now
+      };
+    }
+  };
+  const incidentStore = {
+    ensureSchema: async () => lifecycleEvents.push('incidentStore.ensureSchema')
+  };
+  const componentIncidentStore = {
+    ensureSchema: async () =>
+      lifecycleEvents.push('componentIncidentStore.ensureSchema')
+  };
   const statusHistoryStore = {
-    ensureSchema: async () => {},
+    ensureSchema: async () =>
+      lifecycleEvents.push('statusHistoryStore.ensureSchema'),
     closed: [],
     closeForRemovedServer: async (...args) => {
       statusHistoryStore.closed.push(args);
@@ -118,6 +137,8 @@ const createFixture = async (t) => {
     monitor,
     incidentManager,
     incidentStore,
+    componentIncidentManager,
+    componentIncidentStore,
     statusHistoryStore,
     statusHistoryService,
     logger: silentLogger,
@@ -136,11 +157,15 @@ const createFixture = async (t) => {
   });
 
   return {
+    module,
     db,
     monitor,
     incidentManager,
+    componentIncidentManager,
+    componentIncidentStore,
     statusHistoryStore,
     statusHistoryService,
+    lifecycleEvents,
     baseUrl
   };
 };
@@ -193,9 +218,27 @@ test('valid environment values are converted to monitor units', () => {
 });
 
 test('module starts its monitor after storage is ready', async (t) => {
-  const { monitor } = await createFixture(t);
+  const {
+    module,
+    monitor,
+    componentIncidentManager,
+    componentIncidentStore,
+    lifecycleEvents
+  } = await createFixture(t);
 
   assert.equal(monitor.startCount, 1);
+  assert.equal(
+    lifecycleEvents.filter(
+      (event) => event === 'componentIncidentStore.ensureSchema'
+    ).length,
+    1
+  );
+  assert.ok(
+    lifecycleEvents.indexOf('componentIncidentStore.ensureSchema') <
+      lifecycleEvents.indexOf('monitor.start')
+  );
+  assert.strictEqual(module.componentIncidentStore, componentIncidentStore);
+  assert.strictEqual(module.componentIncidentManager, componentIncidentManager);
 });
 
 test('GET status returns snapshot without starting a health run', async (t) => {
@@ -319,7 +362,7 @@ test('bulk status history validates its window and bucket size', async (t) => {
 });
 
 test('server incident history validates filters before querying', async (t) => {
-  const { db, incidentManager, baseUrl } = await createFixture(t);
+  const { db, componentIncidentManager, baseUrl } = await createFixture(t);
   const inserted = await run(
     db,
     'INSERT INTO servers (name, url, description) VALUES (?, ?, ?)',
@@ -333,7 +376,7 @@ test('server incident history validates filters before querying', async (t) => {
 
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.deepEqual(incidentManager.requestedHistory, {
+  assert.deepEqual(componentIncidentManager.requestedHistory, {
     serverId: inserted.lastID,
     filters: {
       limit: 50,
@@ -354,7 +397,7 @@ test('server incident history validates filters before querying', async (t) => {
 });
 
 test('server incident history returns 404 for an unknown server', async (t) => {
-  const { incidentManager, baseUrl } = await createFixture(t);
+  const { componentIncidentManager, baseUrl } = await createFixture(t);
 
   const response = await fetch(
     `${baseUrl}/api/health/servers/9999/incidents`
@@ -363,7 +406,7 @@ test('server incident history returns 404 for an unknown server', async (t) => {
   assert.equal(response.status, 404);
   assert.match(response.headers.get('content-type'), /application\/json/);
   assert.deepEqual(await response.json(), { error: 'Server not found' });
-  assert.equal(incidentManager.requestedHistory, null);
+  assert.equal(componentIncidentManager.requestedHistory, null);
 });
 
 test('deleting a server closes its incident and active status period', async (t) => {
@@ -371,6 +414,7 @@ test('deleting a server closes its incident and active status period', async (t)
     db,
     monitor,
     incidentManager,
+    componentIncidentManager,
     statusHistoryStore,
     baseUrl
   } = await createFixture(t);
@@ -390,6 +434,11 @@ test('deleting a server closes its incident and active status period', async (t)
 
   assert.equal(response.status, 200);
   assert.deepEqual(incidentManager.closed, {
+    serverId: inserted.lastID,
+    reason: 'monitor_removed',
+    at: '2026-07-28T10:00:00.000Z'
+  });
+  assert.deepEqual(componentIncidentManager.closed, {
     serverId: inserted.lastID,
     reason: 'monitor_removed',
     at: '2026-07-28T10:00:00.000Z'

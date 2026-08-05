@@ -91,6 +91,9 @@ const makeMonitor = (overrides = {}) =>
       record: async () => {},
       prune: async () => {}
     },
+    componentIncidents: {
+      record: async () => {}
+    },
     notifier: { send: async () => ({ delivered: true }) },
     intervalMs: 60000,
     timeoutMs: 5000,
@@ -150,6 +153,62 @@ test('records every normalized severity and prunes once after a round', async ()
     [3, 'error', '2026-07-28T10:00:00.000Z']
   ]);
   assert.deepEqual(pruned, [['2026-07-28T10:00:00.000Z']]);
+});
+
+test('records every check result once in component history', async () => {
+  const recorded = [];
+  const monitor = makeMonitor({
+    listServers: async () => [serverA, serverB, serverC],
+    check: async (server) => {
+      if (server.id === 1) return okA;
+      if (server.id === 2) return warningB;
+      return errorC;
+    },
+    componentIncidents: {
+      record: async (...args) => recorded.push(args)
+    }
+  });
+
+  await monitor.runNow();
+
+  assert.deepEqual(recorded, [
+    [okA, '2026-07-28T10:00:00.000Z'],
+    [warningB, '2026-07-28T10:00:00.000Z'],
+    [errorC, '2026-07-28T10:00:00.000Z']
+  ]);
+});
+
+test('component history failure does not abort aggregate incidents or notifications', async () => {
+  const recorded = [];
+  const errors = [];
+  const monitor = makeMonitor({
+    listServers: async () => [serverB],
+    check: async () => errorB,
+    componentIncidents: {
+      record: async () => {
+        throw new Error('disk busy');
+      }
+    },
+    incidentManager: {
+      recorded,
+      record: async (...args) => {
+        recorded.push(args);
+        return { incident: null, notification: null };
+      },
+      markDelivery: async () => {}
+    },
+    logger: {
+      info() {},
+      warn() {},
+      error: (message) => errors.push(message)
+    }
+  });
+
+  const status = await monitor.runNow();
+
+  assert.equal(status.servers.Database.status, 'error');
+  assert.equal(recorded.length, 1);
+  assert.match(errors.join(' '), /component incident history write failed/i);
 });
 
 test('status-history failures do not break snapshots or incidents', async () => {
