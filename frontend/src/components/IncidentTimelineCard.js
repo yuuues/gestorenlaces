@@ -10,25 +10,38 @@ export const formatIncidentTimestamp = (value) => {
 };
 
 export const formatIncidentDuration = (incident) => {
-  if (!incident?.first_failed_at) return null;
-  const start = Date.parse(incident.first_failed_at);
+  const firstObservedAt = incident?.first_observed_at || incident?.first_failed_at;
+  if (!firstObservedAt) return null;
+  const start = Date.parse(firstObservedAt);
   const end = Date.parse(
     incident.resolved_at ||
+      incident.last_observed_at ||
       incident.last_failed_at ||
-      incident.first_failed_at
+      firstObservedAt
   );
   if (Number.isNaN(start) || Number.isNaN(end)) return null;
   const minutes = Math.max(0, Math.round((end - start) / 60000));
   return minutes < 1 ? 'menos de un minuto' : `${minutes} min`;
 };
 
+const eventLabel = (event) => {
+  if (event.type === 'recovered') return 'Servicio recuperado';
+  if (event.type === 'update') return 'Actualización';
+  return event.severity === 'warning' ? 'Aviso detectado' : 'Error detectado';
+};
+
 const IncidentTimelineCard = ({ incident, serverName }) => {
+  const hasEvents = Array.isArray(incident?.events);
+  const severity = incident?.highest_severity || incident?.current_severity || 'error';
   const components = Array.isArray(incident?.last_error?.components)
     ? incident.last_error.components
     : [];
-  const context = components.length > 0
+  const legacyContext = components.length > 0
     ? components.join(', ')
     : serverName || incident?.server_name || 'servidor';
+  const context = incident?.component_name || incident?.component_key || legacyContext;
+  const title = `${severity === 'warning' ? 'Aviso' : 'Incidencia'} de ${context}`;
+  const count = incident?.observation_count ?? incident?.consecutive_failures ?? 0;
   const open = incident?.status === 'open';
   const endLabel = open
     ? 'En curso'
@@ -38,37 +51,62 @@ const IncidentTimelineCard = ({ incident, serverName }) => {
   const duration = formatIncidentDuration(incident);
 
   return (
-    <article className={`incident-timeline-card ${open ? 'open' : 'resolved'}`}>
+    <article className={`incident-timeline-card severity-${severity} ${open ? 'open' : 'resolved'}`}>
       <header className="incident-timeline-header">
-        <h3>Incidencia de {context}</h3>
-        <span className={`incident-state ${open ? 'open' : 'resolved'}`}>
+        <h3>{hasEvents ? title : `Incidencia de ${context}`}</h3>
+        <span className={`incident-state ${open ? `open severity-${severity}` : 'resolved'}`}>
           {open ? 'Abierta' : 'Resuelta'}
         </span>
       </header>
 
-      {incident?.last_error?.message && (
-        <p className="incident-diagnostic">
-          {incident.last_error.message}
-        </p>
+      {hasEvents ? (
+        <ol className="incident-timeline">
+          {incident.events.map((event, index) => {
+            const eventSeverity = event.type === 'recovered' ? 'recovered' : event.severity || severity;
+            const messages = Array.isArray(event.messages) ? event.messages : [];
+
+            return (
+              <li className={eventSeverity} key={event.id || `${event.observed_at}-${index}`}>
+                <strong>{eventLabel(event)}</strong>
+                <span>{formatIncidentTimestamp(event.observed_at)}</span>
+                {messages.length > 0 && (
+                  <ul className="incident-event-messages">
+                    {messages.map((message, messageIndex) => (
+                      <li key={`${message}-${messageIndex}`}>{message}</li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <>
+          {incident?.last_error?.message && (
+            <p className="incident-diagnostic">
+              {incident.last_error.message}
+            </p>
+          )}
+
+          <ol className="incident-timeline">
+            <li className="error">
+              <strong>Error detectado</strong>
+              <span>{formatIncidentTimestamp(incident?.first_failed_at)}</span>
+            </li>
+            <li className={open ? 'ongoing' : incident?.resolution_reason === 'warning' ? 'warning' : 'recovered'}>
+              <strong>{endLabel}</strong>
+              <span>
+                {open
+                  ? formatIncidentTimestamp(incident?.last_failed_at)
+                  : formatIncidentTimestamp(incident?.resolved_at)}
+              </span>
+            </li>
+          </ol>
+        </>
       )}
 
-      <ol className="incident-timeline">
-        <li className="detected">
-          <strong>Error detectado</strong>
-          <span>{formatIncidentTimestamp(incident?.first_failed_at)}</span>
-        </li>
-        <li className={open ? 'ongoing' : incident?.resolution_reason === 'warning' ? 'warning' : 'recovered'}>
-          <strong>{endLabel}</strong>
-          <span>
-            {open
-              ? formatIncidentTimestamp(incident?.last_failed_at)
-              : formatIncidentTimestamp(incident?.resolved_at)}
-          </span>
-        </li>
-      </ol>
-
       <footer className="incident-timeline-footer">
-        <span>{incident?.consecutive_failures || 0} fallos consecutivos</span>
+        <span>{hasEvents ? `${count} observaciones` : `${count} fallos consecutivos`}</span>
         {duration && <span>{duration}</span>}
       </footer>
     </article>

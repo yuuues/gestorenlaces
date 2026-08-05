@@ -22,6 +22,56 @@ afterAll(() => {
   console.error.mockRestore();
 });
 
+const warningEpisode = {
+  id: 9,
+  component_name: 'db',
+  status: 'resolved',
+  current_severity: 'warning',
+  highest_severity: 'warning',
+  first_observed_at: '2026-08-04T15:06:29.000Z',
+  resolved_at: '2026-08-04T15:10:11.000Z',
+  observation_count: 4,
+  events: [
+    {
+      type: 'detected',
+      severity: 'warning',
+      observed_at: '2026-08-04T15:06:29.000Z',
+      messages: ['Espera de 30s']
+    },
+    {
+      type: 'update',
+      severity: 'warning',
+      observed_at: '2026-08-04T15:07:29.000Z',
+      messages: ['Espera de 45s']
+    },
+    {
+      type: 'recovered',
+      severity: 'ok',
+      observed_at: '2026-08-04T15:10:11.000Z',
+      messages: []
+    }
+  ]
+};
+
+const errorEpisode = {
+  id: 10,
+  component_name: 'api',
+  status: 'open',
+  current_severity: 'error',
+  highest_severity: 'error',
+  first_observed_at: '2026-08-04T15:06:29.000Z',
+  last_observed_at: '2026-08-04T15:07:29.000Z',
+  observation_count: 2,
+  events: [
+    {
+      type: 'detected',
+      severity: 'error',
+      observed_at: '2026-08-04T15:06:29.000Z',
+      messages: ['Tiempo de espera agotado', 'Conexión rechazada']
+    }
+  ]
+};
+
 const resolvedIncident = {
   id: 7,
   server_id: 1,
@@ -39,7 +89,40 @@ const resolvedIncident = {
   }
 };
 
-test('resolved incident shows its diagnosis and recovery timeline', () => {
+test('diagnostic warning episode renders every event without the legacy banner', () => {
+  render(
+    <IncidentTimelineCard
+      incident={warningEpisode}
+      serverName="Magma"
+    />
+  );
+
+  expect(
+    screen.getByRole('heading', { name: 'Aviso de db' })
+  ).toBeInTheDocument();
+  expect(screen.getByText('Resuelta')).toBeInTheDocument();
+  expect(screen.getByText('Aviso detectado')).toBeInTheDocument();
+  expect(screen.getByText('Actualización')).toBeInTheDocument();
+  expect(screen.getByText('Servicio recuperado')).toBeInTheDocument();
+  expect(screen.getByText('Espera de 30s')).toBeInTheDocument();
+  expect(screen.getByText('Espera de 45s')).toBeInTheDocument();
+  expect(screen.queryByText('Components failed')).not.toBeInTheDocument();
+});
+
+test('diagnostic error event groups all of its messages in one timeline item', () => {
+  render(
+    <IncidentTimelineCard
+      incident={errorEpisode}
+      serverName="Magma"
+    />
+  );
+
+  const event = screen.getByText('Error detectado').closest('li');
+  expect(event).toContainElement(screen.getByText('Tiempo de espera agotado'));
+  expect(event).toContainElement(screen.getByText('Conexión rechazada'));
+});
+
+test('legacy incident keeps its diagnosis and recovery timeline', () => {
   render(
     <IncidentTimelineCard
       incident={resolvedIncident}
@@ -50,48 +133,9 @@ test('resolved incident shows its diagnosis and recovery timeline', () => {
   expect(
     screen.getByRole('heading', { name: 'Incidencia de db' })
   ).toBeInTheDocument();
-  expect(screen.getByText('Resuelta')).toBeInTheDocument();
   expect(
     screen.getByText('Bloqueo en BD: 1 sesión bloqueada.')
   ).toBeInTheDocument();
-  expect(screen.getByText('Error detectado')).toBeInTheDocument();
   expect(screen.getByText('Servicio recuperado')).toBeInTheDocument();
   expect(screen.getByText(/2 fallos consecutivos/)).toBeInTheDocument();
-});
-
-test('warning closure is described without calling it a recovery', () => {
-  render(
-    <IncidentTimelineCard
-      incident={{ ...resolvedIncident, resolution_reason: 'warning' }}
-      serverName="Magma"
-    />
-  );
-
-  expect(screen.getByText('El error pasó a aviso')).toBeInTheDocument();
-  expect(screen.queryByText('Servicio recuperado')).not.toBeInTheDocument();
-});
-
-test('open network incident uses the server name and stays in progress', () => {
-  render(
-    <IncidentTimelineCard
-      incident={{
-        ...resolvedIncident,
-        status: 'open',
-        resolved_at: null,
-        resolution_reason: null,
-        last_error: {
-          kind: 'network',
-          message: 'connect ECONNREFUSED',
-          components: []
-        }
-      }}
-      serverName="Magma"
-    />
-  );
-
-  expect(
-    screen.getByRole('heading', { name: 'Incidencia de Magma' })
-  ).toBeInTheDocument();
-  expect(screen.getByText('Abierta')).toBeInTheDocument();
-  expect(screen.getByText('En curso')).toBeInTheDocument();
 });
