@@ -26,13 +26,18 @@ export const formatIncidentDuration = (incident) => {
 
 const eventLabel = (event) => {
   if (event.type === 'recovered') return 'Servicio recuperado';
-  if (event.type === 'update') return 'Actualización';
+  if (event.type === 'warning') return 'Pasó a aviso';
+  if (event.type === 'monitor_removed') return 'Monitor eliminado';
+  if (event.type === 'update') {
+    return `Actualización · ${event.severity === 'warning' ? 'Aviso' : 'Error'}`;
+  }
   return event.severity === 'warning' ? 'Aviso detectado' : 'Error detectado';
 };
 
 const IncidentTimelineCard = ({ incident, serverName }) => {
   const hasEvents = Array.isArray(incident?.events);
   const severity = incident?.highest_severity || incident?.current_severity || 'error';
+  const currentSeverity = incident?.current_severity || severity;
   const components = Array.isArray(incident?.last_error?.components)
     ? incident.last_error.components
     : [];
@@ -43,26 +48,35 @@ const IncidentTimelineCard = ({ incident, serverName }) => {
   const title = `${severity === 'warning' ? 'Aviso' : 'Incidencia'} de ${context}`;
   const count = incident?.observation_count ?? incident?.consecutive_failures ?? 0;
   const open = incident?.status === 'open';
+  const stateLabel = open
+    ? currentSeverity === 'warning' ? 'Aviso activo' : 'Error activo'
+    : 'Resuelta';
   const endLabel = open
     ? 'En curso'
     : incident?.resolution_reason === 'warning'
       ? 'El error pasó a aviso'
-      : 'Servicio recuperado';
+      : incident?.resolution_reason === 'monitor_removed'
+        ? 'Monitor eliminado'
+        : 'Servicio recuperado';
   const duration = formatIncidentDuration(incident);
 
   return (
     <article className={`incident-timeline-card severity-${severity} ${open ? 'open' : 'resolved'}`}>
       <header className="incident-timeline-header">
         <h3>{hasEvents ? title : `Incidencia de ${context}`}</h3>
-        <span className={`incident-state ${open ? `open severity-${severity}` : 'resolved'}`}>
-          {open ? 'Abierta' : 'Resuelta'}
+        <span className={`incident-state ${open ? `open severity-${currentSeverity}` : 'resolved'}`}>
+          {stateLabel}
         </span>
       </header>
 
       {hasEvents ? (
         <ol className="incident-timeline">
           {incident.events.map((event, index) => {
-            const eventSeverity = event.type === 'recovered' ? 'recovered' : event.severity || severity;
+            const eventSeverity = event.type === 'recovered'
+              ? 'recovered'
+              : event.type === 'monitor_removed'
+                ? 'neutral'
+                : event.severity || severity;
             const messages = Array.isArray(event.messages) ? event.messages : [];
 
             return (
@@ -93,7 +107,13 @@ const IncidentTimelineCard = ({ incident, serverName }) => {
               <strong>Error detectado</strong>
               <span>{formatIncidentTimestamp(incident?.first_failed_at)}</span>
             </li>
-            <li className={open ? 'ongoing' : incident?.resolution_reason === 'warning' ? 'warning' : 'recovered'}>
+            <li className={open
+              ? 'ongoing'
+              : incident?.resolution_reason === 'warning'
+                ? 'warning'
+                : incident?.resolution_reason === 'monitor_removed'
+                  ? 'neutral'
+                  : 'recovered'}>
               <strong>{endLabel}</strong>
               <span>
                 {open

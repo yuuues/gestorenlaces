@@ -41,6 +41,19 @@ const isLegacyUniqueConstraint = (error) =>
     error.message
   );
 
+const legacyClosureEvent = (reason) => {
+  if (reason === 'recovered') {
+    return { type: 'recovered', severity: 'ok' };
+  }
+  if (reason === 'warning') {
+    return { type: 'warning', severity: 'warning' };
+  }
+  if (reason === 'monitor_removed') {
+    return { type: 'monitor_removed', severity: 'neutral' };
+  }
+  return null;
+};
+
 const createComponentIncidentStore = (db) => {
   let operationTail = Promise.resolve();
 
@@ -236,15 +249,23 @@ const createComponentIncidentStore = (db) => {
               JSON.stringify(messages)
             ]
           );
-          if (legacy.status === 'resolved') {
+          const closure = legacy.status === 'resolved'
+            ? legacyClosureEvent(legacy.resolution_reason)
+            : null;
+          if (closure) {
             await run(
               db,
               `
                 INSERT INTO health_component_incident_events (
                   incident_id, type, severity, observed_at, messages
-                ) VALUES (?, 'recovered', 'ok', ?, '[]')
+                ) VALUES (?, ?, ?, ?, '[]')
               `,
-              [inserted.lastID, legacy.resolved_at || legacy.last_failed_at]
+              [
+                inserted.lastID,
+                closure.type,
+                closure.severity,
+                legacy.resolved_at || legacy.last_failed_at
+              ]
             );
           }
         }
@@ -286,8 +307,18 @@ const createComponentIncidentStore = (db) => {
           CREATE TABLE IF NOT EXISTS health_component_incident_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             incident_id INTEGER NOT NULL,
-            type TEXT NOT NULL CHECK (type IN ('detected', 'update', 'recovered')),
-            severity TEXT NOT NULL CHECK (severity IN ('ok', 'warning', 'error')),
+            type TEXT NOT NULL CHECK (
+              type IN (
+                'detected',
+                'update',
+                'recovered',
+                'warning',
+                'monitor_removed'
+              )
+            ),
+            severity TEXT NOT NULL CHECK (
+              severity IN ('ok', 'warning', 'error', 'neutral')
+            ),
             observed_at TEXT NOT NULL,
             messages TEXT NOT NULL,
             FOREIGN KEY (incident_id)
@@ -301,6 +332,13 @@ const createComponentIncidentStore = (db) => {
           CREATE UNIQUE INDEX IF NOT EXISTS idx_health_component_incidents_legacy
           ON health_component_incidents(legacy_incident_id, component_key)
           WHERE legacy_incident_id IS NOT NULL;
+
+          CREATE INDEX IF NOT EXISTS idx_health_component_incidents_server_history
+          ON health_component_incidents(
+            server_id,
+            first_observed_at DESC,
+            id DESC
+          );
 
           CREATE INDEX IF NOT EXISTS idx_health_component_events_incident_time
           ON health_component_incident_events(incident_id, observed_at, id);
@@ -322,6 +360,80 @@ const createComponentIncidentStore = (db) => {
         [serverId]
       )
     );
+
+  const adoptLegacyComponentKey = (
+    serverId,
+    componentKey,
+    componentName
+  ) =>
+    transaction(async () => {
+      const exact = await get(
+        db,
+        `
+          SELECT id
+          FROM health_component_incidents
+          WHERE server_id = ? AND component_key = ? AND status = 'open'
+        `,
+        [serverId, componentKey]
+      );
+      if (exact) return null;
+
+      const candidates = await all(
+        db,
+        `
+          SELECT id, legacy_incident_id
+          FROM health_component_incidents
+          WHERE server_id = ?
+            AND component_name = ?
+            AND status = 'open'
+            AND legacy_incident_id IS NOT NULL
+          ORDER BY id
+          LIMIT 2
+        `,
+        [serverId, componentName]
+      );
+      if (candidates.length !== 1) return null;
+
+      const [candidate] = candidates;
+      const legacyKeyConflict = await get(
+        db,
+        `
+          SELECT id
+          FROM health_component_incidents
+          WHERE legacy_incident_id = ?
+            AND component_key = ?
+            AND id != ?
+        `,
+        [candidate.legacy_incident_id, componentKey, candidate.id]
+      );
+      if (legacyKeyConflict) return null;
+
+      const adopted = await run(
+        db,
+        `
+          UPDATE health_component_incidents
+          SET component_key = ?, component_name = ?
+          WHERE id = ?
+            AND status = 'open'
+            AND legacy_incident_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM health_component_incidents AS exact
+              WHERE exact.server_id = ?
+                AND exact.component_key = ?
+                AND exact.status = 'open'
+            )
+        `,
+        [
+          componentKey,
+          componentName,
+          candidate.id,
+          serverId,
+          componentKey
+        ]
+      );
+      return adopted.changes === 1 ? hydrateOne(candidate.id) : null;
+    });
 
   const createEpisode = (observation, observedAt) =>
     transaction(async () => {
@@ -511,6 +623,7 @@ const createComponentIncidentStore = (db) => {
   return {
     ensureSchema,
     listActive,
+    adoptLegacyComponentKey,
     createEpisode,
     appendUpdate,
     touch,

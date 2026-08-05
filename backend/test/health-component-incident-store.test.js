@@ -4,6 +4,9 @@ const sqlite3 = require('sqlite3').verbose();
 const {
   createComponentIncidentStore
 } = require('../modules/health/component-incident-store');
+const {
+  createComponentIncidentManager
+} = require('../modules/health/component-incident-manager');
 
 const T0 = '2026-08-04T10:00:00.000Z';
 const T1 = '2026-08-04T10:01:00.000Z';
@@ -42,6 +45,56 @@ const fixture = async (t) => {
   const store = createComponentIncidentStore(db);
   await store.ensureSchema();
   return { db, store };
+};
+
+const insertOpenComponentIncident = (db, overrides = {}) => {
+  const row = {
+    serverId: 7,
+    serverName: 'Magma Nodo 7',
+    componentKey: 'Database',
+    componentName: 'Database',
+    currentSeverity: 'error',
+    highestSeverity: 'error',
+    firstObservedAt: T0,
+    lastObservedAt: T0,
+    observationCount: 2,
+    signature: '["Components failed: Database"]',
+    legacyIncidentId: 41,
+    ...overrides
+  };
+
+  return run(
+    db,
+    `
+      INSERT INTO health_component_incidents (
+        server_id,
+        server_name,
+        component_key,
+        component_name,
+        status,
+        current_severity,
+        highest_severity,
+        first_observed_at,
+        last_observed_at,
+        observation_count,
+        last_message_signature,
+        legacy_incident_id
+      ) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      row.serverId,
+      row.serverName,
+      row.componentKey,
+      row.componentName,
+      row.currentSeverity,
+      row.highestSeverity,
+      row.firstObservedAt,
+      row.lastObservedAt,
+      row.observationCount,
+      row.signature,
+      row.legacyIncidentId
+    ]
+  );
 };
 
 const observation = (overrides = {}) => ({
@@ -185,6 +238,130 @@ test('removed monitor closes all server episodes without green recovery events',
   );
 });
 
+test('adopts an unambiguous open legacy display name as the live component key', async (t) => {
+  const { db, store } = await fixture(t);
+  const inserted = await insertOpenComponentIncident(db);
+
+  const adopted = await store.adoptLegacyComponentKey(
+    7,
+    'database',
+    'Database'
+  );
+
+  assert.equal(adopted.id, inserted.lastID);
+  assert.equal(adopted.component_key, 'database');
+  assert.equal(adopted.component_name, 'Database');
+  assert.deepEqual(
+    (await store.listActive(7)).map(({ component_key }) => component_key),
+    ['database']
+  );
+});
+
+test('does not adopt a non-legacy display-name match', async (t) => {
+  const { store } = await fixture(t);
+  await store.createEpisode(observation({
+    componentKey: 'manual-database',
+    componentName: 'Database'
+  }), T0);
+
+  const adopted = await store.adoptLegacyComponentKey(
+    7,
+    'database',
+    'Database'
+  );
+
+  assert.equal(adopted, null);
+  assert.deepEqual(
+    (await store.listActive(7)).map(({ component_key }) => component_key),
+    ['manual-database']
+  );
+});
+
+test('does not adopt an ambiguous legacy display-name match', async (t) => {
+  const { db, store } = await fixture(t);
+  await insertOpenComponentIncident(db, {
+    componentKey: 'legacy-primary',
+    legacyIncidentId: 42
+  });
+  await insertOpenComponentIncident(db, {
+    componentKey: 'legacy-replica',
+    legacyIncidentId: 43
+  });
+
+  const adopted = await store.adoptLegacyComponentKey(
+    7,
+    'database',
+    'Database'
+  );
+
+  assert.equal(adopted, null);
+  assert.deepEqual(
+    (await store.listActive(7)).map(({ component_key }) => component_key),
+    ['legacy-primary', 'legacy-replica']
+  );
+});
+
+test('continues and then recovers a migrated display-name episode under its live key', async (t) => {
+  const { db, store } = await fixture(t);
+  const manager = createComponentIncidentManager({ store });
+  const inserted = await insertOpenComponentIncident(db);
+  await run(
+    db,
+    `
+      INSERT INTO health_component_incident_events (
+        incident_id, type, severity, observed_at, messages
+      ) VALUES (?, 'detected', 'error', ?, ?)
+    `,
+    [inserted.lastID, T0, '["Components failed: Database"]']
+  );
+
+  await manager.record({
+    serverId: 7,
+    name: 'Magma Nodo 7',
+    status: 'error',
+    components: {
+      database: {
+        name: 'Database',
+        status: 'error',
+        errors: ['Components failed: Database']
+      }
+    },
+    error: null,
+    warning: null
+  }, T1);
+
+  const continuing = await store.listForServer(7);
+  assert.equal(continuing.total, 1);
+  assert.equal(continuing.items[0].id, inserted.lastID);
+  assert.equal(continuing.items[0].component_key, 'database');
+  assert.equal(continuing.items[0].status, 'open');
+  assert.equal(continuing.items[0].observation_count, 3);
+
+  await manager.record({
+    serverId: 7,
+    name: 'Magma Nodo 7',
+    status: 'ok',
+    components: {
+      database: {
+        name: 'Database',
+        status: 'ok',
+        errors: []
+      }
+    },
+    error: null,
+    warning: null
+  }, T2);
+
+  const recovered = await store.listForServer(7);
+  assert.equal(recovered.total, 1);
+  assert.equal(recovered.items[0].status, 'resolved');
+  assert.equal(recovered.items[0].resolution_reason, 'recovered');
+  assert.deepEqual(
+    recovered.items[0].events.map(({ type }) => type),
+    ['detected', 'recovered']
+  );
+});
+
 test('filters incidents before pagination and orders newest episodes first', async (t) => {
   const { db, store } = await fixture(t);
   const oldest = await store.createEpisode(
@@ -238,6 +415,30 @@ test('filters incidents before pagination and orders newest episodes first', asy
   assert.equal(eventSelects.length, 1);
   assert.match(eventSelects[0], new RegExp(`IN \\(${oneItem.items[0].id}\\)`));
   assert.doesNotMatch(eventSelects[0], new RegExp(`\\b${oldest.id}\\b`));
+});
+
+test('uses the server history index for the common ordered page query', async (t) => {
+  const { db } = await fixture(t);
+
+  const plan = await all(
+    db,
+    `
+      EXPLAIN QUERY PLAN
+      SELECT *
+      FROM health_component_incidents
+      WHERE server_id = ?
+      ORDER BY first_observed_at DESC, id DESC
+      LIMIT ? OFFSET ?
+    `,
+    [7, 20, 0]
+  );
+  const details = plan.map(({ detail }) => detail).join('\n');
+
+  assert.match(
+    details,
+    /USING INDEX idx_health_component_incidents_server_history/
+  );
+  assert.doesNotMatch(details, /USE TEMP B-TREE/);
 });
 
 test('migrates legacy incidents into component timelines exactly once', async (t) => {
@@ -351,4 +552,82 @@ test('migrates legacy incidents into component timelines exactly once', async (t
   assert.equal(networkEpisode.status, 'open');
   assert.equal(networkEpisode.observation_count, 2);
   assert.deepEqual(networkEpisode.events[0].messages, ['ECONNREFUSED']);
+});
+
+test('migrates each legacy closure reason to a truthful timeline event', async (t) => {
+  const db = new sqlite3.Database(':memory:');
+  t.after(() => close(db));
+  await exec(
+    db,
+    `
+      CREATE TABLE health_incidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER NOT NULL,
+        server_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        first_failed_at TEXT NOT NULL,
+        last_failed_at TEXT NOT NULL,
+        opened_at TEXT,
+        resolved_at TEXT,
+        resolution_reason TEXT,
+        consecutive_failures INTEGER NOT NULL,
+        last_error TEXT NOT NULL
+      )
+    `
+  );
+
+  for (const [index, reason] of [
+    'recovered',
+    'warning',
+    'monitor_removed'
+  ].entries()) {
+    await run(
+      db,
+      `
+        INSERT INTO health_incidents (
+          server_id, server_name, status, first_failed_at, last_failed_at,
+          opened_at, resolved_at, resolution_reason, consecutive_failures,
+          last_error
+        ) VALUES (?, ?, 'resolved', ?, ?, ?, ?, ?, 2, ?)
+      `,
+      [
+        index + 1,
+        `Magma Nodo ${index + 1}`,
+        T0,
+        T1,
+        T0,
+        T2,
+        reason,
+        JSON.stringify({
+          kind: 'component',
+          message: `Components failed: db${index + 1}`,
+          components: [`db${index + 1}`]
+        })
+      ]
+    );
+  }
+
+  const store = createComponentIncidentStore(db);
+  await store.ensureSchema();
+
+  const closures = [];
+  for (const serverId of [1, 2, 3]) {
+    const [episode] = (await store.listForServer(serverId)).items;
+    const closure = episode.events.at(-1);
+    closures.push({
+      reason: episode.resolution_reason,
+      type: closure.type,
+      severity: closure.severity
+    });
+  }
+
+  assert.deepEqual(closures, [
+    { reason: 'recovered', type: 'recovered', severity: 'ok' },
+    { reason: 'warning', type: 'warning', severity: 'warning' },
+    {
+      reason: 'monitor_removed',
+      type: 'monitor_removed',
+      severity: 'neutral'
+    }
+  ]);
 });

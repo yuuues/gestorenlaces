@@ -114,6 +114,11 @@
   box-shadow: 0 0 0 1px #d97706;
 }
 
+.incident-timeline > li.neutral::before {
+  background: #64748b;
+  box-shadow: 0 0 0 1px #64748b;
+}
+
 .incident-timeline > li.ongoing::before {
   background: #fff;
   box-shadow: 0 0 0 1px #dc2626;

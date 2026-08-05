@@ -37,6 +37,15 @@ const networkFailure = (message) => ({
   warning: null
 });
 
+const serverWarning = (message) => ({
+  serverId: 7,
+  name: 'Magma Nodo 7',
+  status: 'warning',
+  components: {},
+  error: null,
+  warning: { kind: 'server', message }
+});
+
 const openIncident = (componentKey, signature = '["Bloqueo"]') => ({
   id: componentKey,
   component_key: componentKey,
@@ -51,6 +60,7 @@ const fakeStore = () => {
     touches: [],
     resolved: [],
     async listActive() { return this.active; },
+    async adoptLegacyComponentKey() { return null; },
     async createEpisode(observation, observedAt) {
       const row = { id: `new-${observation.componentKey}`, component_key: observation.componentKey, observedAt };
       this.created.push(observation);
@@ -155,4 +165,26 @@ test('warning-to-error with the same message touches updated severities', async 
   assert.equal(store.updates.length, 0);
   assert.equal(store.touches.length, 1);
   assert.equal(store.touches[0].observation.severity, 'error');
+});
+
+test('keeps the server episode open through a top-level warning until healthy', async () => {
+  const store = fakeStore();
+  const manager = createComponentIncidentManager({ store });
+
+  await manager.record(networkFailure('ECONNREFUSED'), T0);
+  await manager.record(serverWarning('Latencia del servidor'), T1);
+  await manager.record(result({}), '2026-08-04T10:02:00.000Z');
+
+  assert.equal(store.created.length, 1);
+  assert.equal(store.created[0].componentKey, '__server__');
+  assert.equal(store.created[0].severity, 'error');
+  assert.equal(store.updates.length, 1);
+  assert.equal(store.updates[0].incident.component_key, '__server__');
+  assert.equal(store.updates[0].observation.severity, 'warning');
+  assert.deepEqual(
+    store.updates[0].observation.messages,
+    ['Latencia del servidor']
+  );
+  assert.equal(store.resolved.length, 1);
+  assert.equal(store.resolved[0].observedAt, '2026-08-04T10:02:00.000Z');
 });

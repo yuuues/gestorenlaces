@@ -68,6 +68,26 @@ const errorEpisode = {
       severity: 'error',
       observed_at: '2026-08-04T15:06:29.000Z',
       messages: ['Tiempo de espera agotado', 'Conexión rechazada']
+    },
+    {
+      type: 'update',
+      severity: 'error',
+      observed_at: '2026-08-04T15:07:29.000Z',
+      messages: ['Nuevo tiempo de espera']
+    }
+  ]
+};
+
+const errorToWarningEpisode = {
+  ...errorEpisode,
+  current_severity: 'warning',
+  events: [
+    errorEpisode.events[0],
+    {
+      type: 'update',
+      severity: 'warning',
+      observed_at: '2026-08-04T15:07:29.000Z',
+      messages: ['Latencia elevada']
     }
   ]
 };
@@ -102,7 +122,7 @@ test('diagnostic warning episode renders every event without the legacy banner',
   ).toBeInTheDocument();
   expect(screen.getByText('Resuelta')).toBeInTheDocument();
   expect(screen.getByText('Aviso detectado')).toBeInTheDocument();
-  expect(screen.getByText('Actualización')).toBeInTheDocument();
+  expect(screen.getByText('Actualización · Aviso')).toBeInTheDocument();
   expect(screen.getByText('Servicio recuperado')).toBeInTheDocument();
   expect(screen.getByText('Espera de 30s')).toBeInTheDocument();
   expect(screen.getByText('Espera de 45s')).toBeInTheDocument();
@@ -120,6 +140,23 @@ test('diagnostic error event groups all of its messages in one timeline item', (
   const event = screen.getByText('Error detectado').closest('li');
   expect(event).toContainElement(screen.getByText('Tiempo de espera agotado'));
   expect(event).toContainElement(screen.getByText('Conexión rechazada'));
+  expect(screen.getByText('Error activo')).toBeInTheDocument();
+  expect(screen.getByText('Actualización · Error')).toBeInTheDocument();
+});
+
+test('open error history exposes a current warning without changing its peak title', () => {
+  render(
+    <IncidentTimelineCard
+      incident={errorToWarningEpisode}
+      serverName="Magma"
+    />
+  );
+
+  expect(
+    screen.getByRole('heading', { name: 'Incidencia de api' })
+  ).toBeInTheDocument();
+  expect(screen.getByText('Aviso activo')).toBeInTheDocument();
+  expect(screen.getByText('Actualización · Aviso')).toBeInTheDocument();
 });
 
 test('legacy incident keeps its diagnosis and recovery timeline', () => {
@@ -138,4 +175,72 @@ test('legacy incident keeps its diagnosis and recovery timeline', () => {
   ).toBeInTheDocument();
   expect(screen.getByText('Servicio recuperado')).toBeInTheDocument();
   expect(screen.getByText(/2 fallos consecutivos/)).toBeInTheDocument();
+});
+
+test.each([
+  {
+    reason: 'recovered',
+    event: { type: 'recovered', severity: 'ok' },
+    label: 'Servicio recuperado',
+    marker: 'recovered'
+  },
+  {
+    reason: 'warning',
+    event: { type: 'warning', severity: 'warning' },
+    label: 'Pasó a aviso',
+    marker: 'warning'
+  },
+  {
+    reason: 'monitor_removed',
+    event: { type: 'monitor_removed', severity: 'neutral' },
+    label: 'Monitor eliminado',
+    marker: 'neutral'
+  }
+])('renders a truthful $reason migration closure', ({
+  reason,
+  event,
+  label,
+  marker
+}) => {
+  render(
+    <IncidentTimelineCard
+      serverName="Magma"
+      incident={{
+        ...warningEpisode,
+        id: `legacy-${reason}`,
+        resolution_reason: reason,
+        events: [
+          warningEpisode.events[0],
+          {
+            ...event,
+            observed_at: '2026-08-04T15:10:11.000Z',
+            messages: []
+          }
+        ]
+      }}
+    />
+  );
+
+  const closure = screen.getByText(label).closest('li');
+  expect(closure).toHaveClass(marker);
+  if (reason !== 'recovered') {
+    expect(screen.queryByText('Servicio recuperado')).not.toBeInTheDocument();
+    expect(closure).not.toHaveClass('recovered');
+  }
+});
+
+test('legacy monitor removal is not presented as a green recovery', () => {
+  render(
+    <IncidentTimelineCard
+      incident={{
+        ...resolvedIncident,
+        resolution_reason: 'monitor_removed'
+      }}
+      serverName="Magma"
+    />
+  );
+
+  const closure = screen.getByText('Monitor eliminado').closest('li');
+  expect(closure).toHaveClass('neutral');
+  expect(screen.queryByText('Servicio recuperado')).not.toBeInTheDocument();
 });

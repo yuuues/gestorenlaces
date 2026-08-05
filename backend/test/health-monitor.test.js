@@ -1,6 +1,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const sqlite3 = require('sqlite3').verbose();
 const { createHealthMonitor } = require('../modules/health/monitor');
+const { createIncidentStore } = require('../modules/health/incident-store');
+const { createIncidentManager } = require('../modules/health/incident-manager');
+const {
+  createComponentIncidentStore
+} = require('../modules/health/component-incident-store');
+const {
+  createComponentIncidentManager
+} = require('../modules/health/component-incident-manager');
 
 const serverA = {
   id: 1,
@@ -78,6 +87,11 @@ const deferred = () => {
 };
 
 const silentLogger = { info() {}, warn() {}, error() {} };
+
+const close = (db) =>
+  new Promise((resolve, reject) => {
+    db.close((error) => (error ? reject(error) : resolve()));
+  });
 
 const makeMonitor = (overrides = {}) =>
   createHealthMonitor({
@@ -209,6 +223,90 @@ test('component history failure does not abort aggregate incidents or notificati
   assert.equal(status.servers.Database.status, 'error');
   assert.equal(recorded.length, 1);
   assert.match(errors.join(' '), /component incident history write failed/i);
+});
+
+test('persists a top-level warning between server error and recovery without new Teams behavior', async (t) => {
+  const db = new sqlite3.Database(':memory:');
+  t.after(() => close(db));
+  const aggregateStore = createIncidentStore(db);
+  const componentStore = createComponentIncidentStore(db);
+  await aggregateStore.ensureSchema();
+  await componentStore.ensureSchema();
+
+  const aggregateManager = createIncidentManager({
+    store: aggregateStore,
+    failureThreshold: 1,
+    reminderMs: 15 * 60 * 1000
+  });
+  const componentManager = createComponentIncidentManager({
+    store: componentStore
+  });
+  const checks = [
+    errorB,
+    {
+      ...warningB,
+      warning: {
+        kind: 'server',
+        message: 'Latencia general del servidor',
+        components: []
+      }
+    },
+    {
+      ...errorB,
+      status: 'ok',
+      error: null,
+      warning: null,
+      info: { connection: 'Conexión validada' }
+    }
+  ];
+  const times = [
+    '2026-07-28T10:00:00.000Z',
+    '2026-07-28T10:01:00.000Z',
+    '2026-07-28T10:02:00.000Z'
+  ];
+  const sent = [];
+  const monitor = makeMonitor({
+    listServers: async () => [serverB],
+    check: async () => checks.shift(),
+    incidentManager: aggregateManager,
+    componentIncidents: componentManager,
+    notifier: {
+      send: async (notification) => {
+        sent.push(notification.type);
+        return { delivered: true };
+      }
+    },
+    now: () => new Date(times.shift())
+  });
+
+  await monitor.runNow();
+  await monitor.runNow();
+
+  const warningHistory = await componentStore.listForServer(serverB.id);
+  assert.equal(warningHistory.total, 1);
+  assert.equal(warningHistory.items[0].status, 'open');
+  assert.equal(warningHistory.items[0].current_severity, 'warning');
+  assert.equal(warningHistory.items[0].highest_severity, 'error');
+  assert.deepEqual(
+    warningHistory.items[0].events.map(({ type, severity }) => ({
+      type,
+      severity
+    })),
+    [
+      { type: 'detected', severity: 'error' },
+      { type: 'update', severity: 'warning' }
+    ]
+  );
+
+  await monitor.runNow();
+
+  const recoveredHistory = await componentStore.listForServer(serverB.id);
+  assert.equal(recoveredHistory.items[0].status, 'resolved');
+  assert.deepEqual(
+    recoveredHistory.items[0].events.map(({ severity }) => severity),
+    ['error', 'warning', 'ok']
+  );
+  assert.deepEqual(sent, ['opened']);
 });
 
 test('status-history failures do not break snapshots or incidents', async () => {

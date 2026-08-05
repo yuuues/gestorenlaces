@@ -31,8 +31,9 @@ const observationFor = (result, componentKey, component, errors) => {
 const hasAffectedComponent = (result) =>
   Object.values(result.components || {}).some(isAffected);
 
-const isUnstructuredServerFailure = (result) =>
-  result.status === 'error' && !hasAffectedComponent(result);
+const isServerLevelIssue = (result) =>
+  (result.status === 'error' || result.status === 'warning') &&
+  !hasAffectedComponent(result);
 
 const extractObservations = (result) => {
   const observations = Object.entries(result.components || {})
@@ -41,13 +42,16 @@ const extractObservations = (result) => {
       observationFor(result, componentKey, component, component.errors)
     );
 
-  if (isUnstructuredServerFailure(result)) {
+  if (isServerLevelIssue(result)) {
+    const diagnostic = result.status === 'error'
+      ? result.error
+      : result.warning;
     observations.push(
       observationFor(
         result,
         '__server__',
-        { name: 'Conexión', status: 'error' },
-        [result.error?.message]
+        { name: 'Conexión', status: result.status },
+        [diagnostic]
       )
     );
   }
@@ -61,21 +65,50 @@ const createComponentIncidentManager = ({ store }) => {
     const activeByKey = new Map(
       active.map((row) => [row.component_key, row])
     );
+    const liveComponents = Object.entries(result.components || {});
+    const liveNameCounts = new Map();
+    for (const [key, component] of liveComponents) {
+      if (component?.status !== 'ok' && !isAffected(component)) continue;
+      const name = component?.name || key;
+      liveNameCounts.set(name, (liveNameCounts.get(name) || 0) + 1);
+    }
     const observations = extractObservations(result);
     const observationByKey = new Map(
       observations.map((item) => [item.componentKey, item])
     );
     const changed = [];
 
-    for (const [key, component] of Object.entries(result.components || {})) {
-      if (component?.status === 'ok' && activeByKey.has(key)) {
+    const activeFor = async (key, component) => {
+      const exact = activeByKey.get(key);
+      if (exact) return exact;
+
+      const componentName = component?.name || key;
+      if (liveNameCounts.get(componentName) !== 1) return null;
+      const adopted = await store.adoptLegacyComponentKey(
+        result.serverId,
+        key,
+        componentName
+      );
+      if (!adopted) return null;
+
+      for (const [activeKey, incident] of activeByKey.entries()) {
+        if (incident.id === adopted.id) activeByKey.delete(activeKey);
+      }
+      activeByKey.set(key, adopted);
+      return adopted;
+    };
+
+    for (const [key, component] of liveComponents) {
+      if (component?.status !== 'ok' && !isAffected(component)) continue;
+      const incident = await activeFor(key, component);
+      if (component?.status === 'ok' && incident) {
         changed.push(
-          await store.resolve(activeByKey.get(key), observedAt, 'recovered')
+          await store.resolve(incident, observedAt, 'recovered')
         );
       }
     }
 
-    if (!isUnstructuredServerFailure(result) && activeByKey.has('__server__')) {
+    if (!isServerLevelIssue(result) && activeByKey.has('__server__')) {
       changed.push(
         await store.resolve(activeByKey.get('__server__'), observedAt, 'recovered')
       );
