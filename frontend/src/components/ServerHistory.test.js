@@ -34,24 +34,49 @@ afterAll(() => {
   console.error.mockRestore();
 });
 
-const incident = {
+const warningEpisode = {
   id: 7,
   server_id: 1,
   server_name: 'Magma',
+  component_key: 'db',
+  highest_severity: 'warning',
   status: 'resolved',
-  first_failed_at: '2026-08-01T04:25:57.000Z',
-  last_failed_at: '2026-08-01T04:27:57.000Z',
+  first_observed_at: '2026-08-01T04:25:57.000Z',
+  last_observed_at: '2026-08-01T04:27:57.000Z',
   resolved_at: '2026-08-01T04:28:05.000Z',
   resolution_reason: 'recovered',
-  consecutive_failures: 2,
-  last_error: {
-    kind: 'component',
-    message: 'Bloqueo en BD',
-    components: ['db']
-  }
+  observation_count: 2,
+  events: [{
+    id: 70,
+    type: 'detected',
+    severity: 'warning',
+    observed_at: '2026-08-01T04:25:57.000Z',
+    messages: ['Aviso en BD']
+  }]
 };
 
-const prepareApi = ({ items = [incident], total = 21 } = {}) => {
+const errorEpisode = {
+  id: 8,
+  server_id: 1,
+  server_name: 'Magma',
+  component_key: 'db2',
+  highest_severity: 'error',
+  status: 'resolved',
+  first_observed_at: '2026-08-01T05:25:57.000Z',
+  last_observed_at: '2026-08-01T05:27:57.000Z',
+  resolved_at: '2026-08-01T05:28:05.000Z',
+  resolution_reason: 'recovered',
+  observation_count: 2,
+  events: [{
+    id: 80,
+    type: 'detected',
+    severity: 'error',
+    observed_at: '2026-08-01T05:25:57.000Z',
+    messages: ['Error en BD secundaria']
+  }]
+};
+
+const prepareApi = ({ items = [warningEpisode, errorEpisode], total = 2 } = {}) => {
   getServers.mockResolvedValue({
     data: [
       {
@@ -97,7 +122,7 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('shows the server state and one timeline card per incident', async () => {
+test('shows warning and error episodes in the server history', async () => {
   prepareApi();
 
   renderHistory();
@@ -107,9 +132,12 @@ test('shows the server state and one timeline card per incident', async () => {
   ).toBeInTheDocument();
   expect(screen.getByText('Estado actual: Aviso')).toBeInTheDocument();
   expect(
-    screen.getByRole('heading', { name: 'Incidencia de db' })
+    screen.getByRole('heading', { name: 'Aviso de db' })
   ).toBeInTheDocument();
-  expect(screen.getByText('21 incidencias registradas')).toBeInTheDocument();
+  expect(
+    screen.getByRole('heading', { name: 'Incidencia de db2' })
+  ).toBeInTheDocument();
+  expect(screen.getByText('2 registros históricos')).toBeInTheDocument();
 });
 
 test('applies filters and resets pagination to the first page', async () => {
@@ -140,7 +168,7 @@ test('applies filters and resets pagination to the first page', async () => {
 });
 
 test('loads the next page of server incidents', async () => {
-  prepareApi();
+  prepareApi({ total: 21 });
   renderHistory();
   await screen.findByRole('heading', { name: 'Magma · Histórico' });
 
@@ -157,13 +185,15 @@ test('loads the next page of server incidents', async () => {
   );
 });
 
-test('explains when the server has no confirmed incidents', async () => {
+test('explains when the server has no warnings or incidents', async () => {
   prepareApi({ items: [], total: 0 });
 
   renderHistory();
 
   expect(
-    await screen.findByText('Este servidor todavía no tiene incidencias confirmadas.')
+    await screen.findByText(
+      'Este servidor todavía no tiene avisos ni incidencias registrados.'
+    )
   ).toBeInTheDocument();
 });
 

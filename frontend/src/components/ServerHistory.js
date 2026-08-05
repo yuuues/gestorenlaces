@@ -118,7 +118,7 @@ const ServerHistory = () => {
         <div>
           <p className="server-history-eyebrow">Histórico de incidencias</p>
           <h2>{displayName} · Histórico</h2>
-          <p>{total} incidencias registradas</p>
+          <p>{total} registros históricos</p>
         </div>
         <span className={`history-current-state ${currentStatus}`}>
           Estado actual: {statusLabel(currentStatus)}
@@ -166,7 +166,7 @@ const ServerHistory = () => {
         <div className="server-history-empty">Cargando histórico...</div>
       ) : items.length === 0 && !error ? (
         <div className="server-history-empty">
-          Este servidor todavía no tiene incidencias confirmadas.
+          Este servidor todavía no tiene avisos ni incidencias registrados.
         </div>
       ) : (
         <div className="incident-history-list">

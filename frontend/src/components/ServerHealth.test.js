@@ -279,6 +279,53 @@ test('shows current errors before current warnings', async () => {
   expect(issues[1]).toHaveTextContent('Aviso');
 });
 
+test('shows every current error and warning while omitting healthy checks', async () => {
+  prepareApi({
+    snapshot: {
+      ...healthySnapshot,
+      servers: {
+        'Magma Nodo 1': {
+          ...healthyServer,
+          status: 'error',
+          components: {
+            api: {
+              name: 'API',
+              status: 'error',
+              errors: [{ severity: 'error', message: 'API no responde' }]
+            },
+            db: {
+              name: 'Database',
+              status: 'error',
+              errors: [{ severity: 'error', message: 'Bloqueo crítico' }]
+            },
+            cache: {
+              name: 'Cache',
+              status: 'warning',
+              errors: [{ severity: 'warning', message: 'Cache al límite' }]
+            },
+            core: healthyServer.components.core
+          }
+        }
+      }
+    }
+  });
+
+  renderHealth();
+
+  const issues = within(
+    await screen.findByRole('region', { name: 'Checks con problemas actuales' })
+  ).getAllByRole('article');
+  expect(issues).toHaveLength(3);
+  expect(issues[0]).toHaveTextContent('API');
+  expect(issues[0]).toHaveTextContent('API no responde');
+  expect(issues[1]).toHaveTextContent('Database');
+  expect(issues[1]).toHaveTextContent('Bloqueo crítico');
+  expect(issues[2]).toHaveTextContent('Cache');
+  expect(issues[2]).toHaveTextContent('Cache al límite');
+  expect(screen.queryByText('Core')).not.toBeInTheDocument();
+  expect(screen.queryByText('Todo correcto')).not.toBeInTheDocument();
+});
+
 test('keeps current diagnostics when status history is unavailable', async () => {
   prepareApi({
     snapshot: {
