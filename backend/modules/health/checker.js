@@ -143,6 +143,7 @@ const checkServer = async (server, options = {}) => {
       name: server.name,
       url: server.url,
       checkedAt,
+      responseBody: response.data,
       ...evaluated,
       info: {
         connection:

@@ -72,6 +72,18 @@ const healthyServer = {
       info: { message: 'Todo correcto' }
     }
   },
+  responseBody: {
+    status: 'ok',
+    version: '2026.08',
+    components: {
+      core: {
+        name: 'Core',
+        status: 'ok',
+        errors: [],
+        info: { message: 'Todo correcto' }
+      }
+    }
+  },
   error: null,
   warning: null,
   info: { connection: 'Conexión validada' },
@@ -161,6 +173,26 @@ test('shows one 24-hour row without healthy check or incident detail', async () 
   expect(screen.queryByText(/Incidencia de/i)).not.toBeInTheDocument();
   expect(screen.queryByText('Servicio recuperado')).not.toBeInTheDocument();
   expect(getHealthIncidents).not.toHaveBeenCalled();
+});
+
+test('lets every user inspect the complete response from the latest automatic check', async () => {
+  prepareApi();
+  renderHealth();
+
+  const toggle = await screen.findByRole('button', {
+    name: 'Ver respuesta completa de Magma Nodo 1'
+  });
+  expect(
+    screen.queryByLabelText('Respuesta completa de Magma Nodo 1')
+  ).not.toBeInTheDocument();
+
+  fireEvent.click(toggle);
+
+  const output = screen.getByLabelText('Respuesta completa de Magma Nodo 1');
+  expect(output).toHaveTextContent('"status": "ok"');
+  expect(output).toHaveTextContent('"version": "2026.08"');
+  expect(output).toHaveTextContent('"Core"');
+  expect(output).toHaveTextContent('"Todo correcto"');
 });
 
 test('keeps navigation to the dedicated incident history', async () => {

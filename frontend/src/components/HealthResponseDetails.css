@@ -1,0 +1,39 @@
+.health-response-details {
+  margin-top: 12px;
+}
+
+.health-response-toggle {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #2563eb;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.health-response-toggle:hover {
+  text-decoration: underline;
+}
+
+.health-response-toggle:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+.health-response-details pre {
+  max-height: 420px;
+  margin: 10px 0 0;
+  overflow: auto;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
