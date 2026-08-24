@@ -258,7 +258,7 @@ En `frontend/package.json`:
 
 ## Requisitos
 
-- Node.js 18+ recomendado.
+- Node.js 20.17+ requerido.
 - Acceso saliente HTTPS desde el backend hacia la URL del Workflow de Teams.
 
 ## Licencia

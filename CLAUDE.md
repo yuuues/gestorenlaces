@@ -58,4 +58,4 @@ To add a backend feature as a module, create `backend/modules/<name>/index.js` e
 
 - Endpoints respond with `{ error: message }` and an appropriate HTTP status on failure; success returns the affected row(s) or a `{ message }` confirmation.
 - Bookmark required fields: `category`, `short_description`, `link`. Server required fields: `name` (unique), `url`.
-- Requires Node 18+. Teams notifications require outbound HTTPS access to the configured Workflow URL.
+- Requires Node 20.17+. Teams notifications require outbound HTTPS access to the configured Workflow URL.
