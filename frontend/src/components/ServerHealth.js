@@ -11,6 +11,7 @@ import { useEditMode } from '../EditModeContext';
 import ServerForm from './ServerForm';
 import ServerStatusStrip from './ServerStatusStrip';
 import CurrentCheckIssues from './CurrentCheckIssues';
+import HealthResponseDetails from './HealthResponseDetails';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBolt,
@@ -349,6 +350,7 @@ const ServerHealth = () => {
                   unavailable={historyUnavailable}
                 />
                 <CurrentCheckIssues server={serverData} />
+                <HealthResponseDetails server={serverData} />
 
               </article>
             );

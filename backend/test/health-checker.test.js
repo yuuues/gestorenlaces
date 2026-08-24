@@ -205,10 +205,21 @@ test('checkServer passes the configured timeout and normalizes network errors', 
 });
 
 test('checkServer returns normalized information for a healthy response', async () => {
+  const responseBody = {
+    status: 'ok',
+    version: '2026.08',
+    components: {
+      core: {
+        name: 'Core',
+        status: 'ok',
+        info: { message: 'Todo correcto' }
+      }
+    }
+  };
   const httpClient = {
     get: async () => ({
       status: 200,
-      data: { status: 'ok', components: {} }
+      data: responseBody
     })
   };
 
@@ -225,4 +236,5 @@ test('checkServer returns normalized information for a healthy response', async 
   assert.equal(result.info.connection, 'Conexión validada');
   assert.equal(result.name, 'Auth');
   assert.equal(result.url, 'https://auth.example/health');
+  assert.deepEqual(result.responseBody, responseBody);
 });

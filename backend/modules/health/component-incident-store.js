@@ -41,6 +41,8 @@ const isLegacyUniqueConstraint = (error) =>
     error.message
   );
 
+const LEGACY_MIGRATION_KEY = 'health-incidents-v1';
+
 const legacyClosureEvent = (reason) => {
   if (reason === 'recovered') {
     return { type: 'recovered', severity: 'ok' };
@@ -163,10 +165,12 @@ const createComponentIncidentStore = (db) => {
     const legacyIncidents = await all(
       db,
       `
-        SELECT *
-        FROM health_incidents
-        WHERE status != 'pending'
-        ORDER BY id
+        SELECT legacy.*
+        FROM health_incidents AS legacy
+        INNER JOIN health_component_legacy_migration_scope AS scope
+          ON scope.legacy_incident_id = legacy.id
+        WHERE legacy.status != 'pending'
+        ORDER BY legacy.id
       `
     );
     if (legacyIncidents.length === 0) return;
@@ -174,6 +178,18 @@ const createComponentIncidentStore = (db) => {
     await exec(db, 'BEGIN IMMEDIATE');
     try {
       for (const legacy of legacyIncidents) {
+        const migrated = await get(
+          db,
+          `
+            SELECT id
+            FROM health_component_incidents
+            WHERE legacy_incident_id = ?
+            LIMIT 1
+          `,
+          [legacy.id]
+        );
+        if (migrated) continue;
+
         const legacyError = JSON.parse(legacy.last_error);
         const components = Array.isArray(legacyError.components) &&
           legacyError.components.length > 0
@@ -182,17 +198,6 @@ const createComponentIncidentStore = (db) => {
         const messages = [legacyError.message];
 
         for (const componentKey of components) {
-          const migrated = await get(
-            db,
-            `
-              SELECT id
-              FROM health_component_incidents
-              WHERE legacy_incident_id = ? AND component_key = ?
-            `,
-            [legacy.id, componentKey]
-          );
-          if (migrated) continue;
-
           let inserted;
           try {
             inserted = await run(
@@ -281,69 +286,149 @@ const createComponentIncidentStore = (db) => {
     }
   };
 
-  const ensureSchema = () =>
-    enqueue(async () => {
-      await exec(
+  const initializeLegacyMigrationScope = async (
+    componentSchemaExisted
+  ) => {
+    const initialized = await get(
+      db,
+      `
+        SELECT migration_key
+        FROM health_component_migrations
+        WHERE migration_key = ?
+      `,
+      [LEGACY_MIGRATION_KEY]
+    );
+    if (initialized) return;
+
+    const legacyTable = await get(
+      db,
+      `
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'health_incidents'
+      `
+    );
+    if (legacyTable) {
+      await run(
         db,
         `
-          CREATE TABLE IF NOT EXISTS health_component_incidents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            server_id INTEGER NOT NULL,
-            server_name TEXT NOT NULL,
-            component_key TEXT NOT NULL,
-            component_name TEXT NOT NULL,
-            status TEXT NOT NULL CHECK (status IN ('open', 'resolved')),
-            current_severity TEXT NOT NULL CHECK (current_severity IN ('ok', 'warning', 'error')),
-            highest_severity TEXT NOT NULL CHECK (highest_severity IN ('warning', 'error')),
-            first_observed_at TEXT NOT NULL,
-            last_observed_at TEXT NOT NULL,
-            resolved_at TEXT,
-            resolution_reason TEXT,
-            observation_count INTEGER NOT NULL DEFAULT 1,
-            last_message_signature TEXT NOT NULL,
-            legacy_incident_id INTEGER
-          );
-
-          CREATE TABLE IF NOT EXISTS health_component_incident_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            incident_id INTEGER NOT NULL,
-            type TEXT NOT NULL CHECK (
-              type IN (
-                'detected',
-                'update',
-                'recovered',
-                'warning',
-                'monitor_removed'
-              )
-            ),
-            severity TEXT NOT NULL CHECK (
-              severity IN ('ok', 'warning', 'error', 'neutral')
-            ),
-            observed_at TEXT NOT NULL,
-            messages TEXT NOT NULL,
-            FOREIGN KEY (incident_id)
-              REFERENCES health_component_incidents(id) ON DELETE CASCADE
-          );
-
-          CREATE UNIQUE INDEX IF NOT EXISTS idx_health_component_incidents_open
-          ON health_component_incidents(server_id, component_key)
-          WHERE status = 'open';
-
-          CREATE UNIQUE INDEX IF NOT EXISTS idx_health_component_incidents_legacy
-          ON health_component_incidents(legacy_incident_id, component_key)
-          WHERE legacy_incident_id IS NOT NULL;
-
-          CREATE INDEX IF NOT EXISTS idx_health_component_incidents_server_history
-          ON health_component_incidents(
-            server_id,
-            first_observed_at DESC,
-            id DESC
-          );
-
-          CREATE INDEX IF NOT EXISTS idx_health_component_events_incident_time
-          ON health_component_incident_events(incident_id, observed_at, id);
+          INSERT OR IGNORE INTO health_component_legacy_migration_scope (
+            legacy_incident_id
+          )
+          ${!componentSchemaExisted
+            ? `SELECT id
+               FROM health_incidents
+               WHERE status != 'pending'`
+            : `SELECT DISTINCT legacy_incident_id
+               FROM health_component_incidents
+               WHERE legacy_incident_id IS NOT NULL`}
         `
       );
+    }
+    await run(
+      db,
+      `
+        INSERT OR IGNORE INTO health_component_migrations (
+          migration_key
+        ) VALUES (?)
+      `,
+      [LEGACY_MIGRATION_KEY]
+    );
+  };
+
+  const ensureSchema = () =>
+    enqueue(async () => {
+      await exec(db, 'BEGIN IMMEDIATE');
+      try {
+        const componentSchemaExisted = await get(
+          db,
+          `
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'health_component_incidents'
+          `
+        );
+        await exec(
+          db,
+          `
+            CREATE TABLE IF NOT EXISTS health_component_incidents (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              server_id INTEGER NOT NULL,
+              server_name TEXT NOT NULL,
+              component_key TEXT NOT NULL,
+              component_name TEXT NOT NULL,
+              status TEXT NOT NULL CHECK (status IN ('open', 'resolved')),
+              current_severity TEXT NOT NULL CHECK (current_severity IN ('ok', 'warning', 'error')),
+              highest_severity TEXT NOT NULL CHECK (highest_severity IN ('warning', 'error')),
+              first_observed_at TEXT NOT NULL,
+              last_observed_at TEXT NOT NULL,
+              resolved_at TEXT,
+              resolution_reason TEXT,
+              observation_count INTEGER NOT NULL DEFAULT 1,
+              last_message_signature TEXT NOT NULL,
+              legacy_incident_id INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS health_component_migrations (
+              migration_key TEXT PRIMARY KEY
+            );
+
+            CREATE TABLE IF NOT EXISTS health_component_legacy_migration_scope (
+              legacy_incident_id INTEGER PRIMARY KEY
+            );
+
+            CREATE TABLE IF NOT EXISTS health_component_incident_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              incident_id INTEGER NOT NULL,
+              type TEXT NOT NULL CHECK (
+                type IN (
+                  'detected',
+                  'update',
+                  'recovered',
+                  'warning',
+                  'monitor_removed'
+                )
+              ),
+              severity TEXT NOT NULL CHECK (
+                severity IN ('ok', 'warning', 'error', 'neutral')
+              ),
+              observed_at TEXT NOT NULL,
+              messages TEXT NOT NULL,
+              FOREIGN KEY (incident_id)
+                REFERENCES health_component_incidents(id) ON DELETE CASCADE
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_health_component_incidents_open
+            ON health_component_incidents(server_id, component_key)
+            WHERE status = 'open';
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_health_component_incidents_legacy
+            ON health_component_incidents(legacy_incident_id, component_key)
+            WHERE legacy_incident_id IS NOT NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_health_component_incidents_server_history
+            ON health_component_incidents(
+              server_id,
+              first_observed_at DESC,
+              id DESC
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_health_component_events_incident_time
+            ON health_component_incident_events(incident_id, observed_at, id);
+          `
+        );
+        await initializeLegacyMigrationScope(
+          Boolean(componentSchemaExisted)
+        );
+        await exec(db, 'COMMIT');
+      } catch (error) {
+        try {
+          await exec(db, 'ROLLBACK');
+        } catch {
+          // Preserve the schema initialization error.
+        }
+        throw error;
+      }
       await migrateLegacyIncidents();
     });
 
