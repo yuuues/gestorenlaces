@@ -47,6 +47,54 @@ const fixture = async (t) => {
   return { db, store };
 };
 
+const createLegacyIncidentTable = (db) =>
+  exec(
+    db,
+    `
+      CREATE TABLE health_incidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER NOT NULL,
+        server_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        first_failed_at TEXT NOT NULL,
+        last_failed_at TEXT NOT NULL,
+        opened_at TEXT,
+        resolved_at TEXT,
+        resolution_reason TEXT,
+        consecutive_failures INTEGER NOT NULL,
+        last_error TEXT NOT NULL
+      )
+    `
+  );
+
+const createComponentIncidentTable = (db) =>
+  exec(
+    db,
+    `
+      CREATE TABLE health_component_incidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER NOT NULL,
+        server_name TEXT NOT NULL,
+        component_key TEXT NOT NULL,
+        component_name TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('open', 'resolved')),
+        current_severity TEXT NOT NULL CHECK (
+          current_severity IN ('ok', 'warning', 'error')
+        ),
+        highest_severity TEXT NOT NULL CHECK (
+          highest_severity IN ('warning', 'error')
+        ),
+        first_observed_at TEXT NOT NULL,
+        last_observed_at TEXT NOT NULL,
+        resolved_at TEXT,
+        resolution_reason TEXT,
+        observation_count INTEGER NOT NULL DEFAULT 1,
+        last_message_signature TEXT NOT NULL,
+        legacy_incident_id INTEGER
+      )
+    `
+  );
+
 const insertOpenComponentIncident = (db, overrides = {}) => {
   const row = {
     serverId: 7,
@@ -362,6 +410,48 @@ test('continues and then recovers a migrated display-name episode under its live
   );
 });
 
+test('does not replay a migrated incident after adopting its live key', async (t) => {
+  const db = new sqlite3.Database(':memory:');
+  t.after(() => close(db));
+  await createLegacyIncidentTable(db);
+  await run(
+    db,
+    `
+      INSERT INTO health_incidents (
+        server_id, server_name, status, first_failed_at, last_failed_at,
+        opened_at, resolved_at, resolution_reason, consecutive_failures,
+        last_error
+      ) VALUES (?, ?, 'open', ?, ?, ?, NULL, NULL, 2, ?)
+    `,
+    [
+      7,
+      'Magma Nodo 7',
+      T0,
+      T1,
+      T1,
+      JSON.stringify({
+        kind: 'component',
+        message: 'Components failed: Database',
+        components: ['Database']
+      })
+    ]
+  );
+  const store = createComponentIncidentStore(db);
+  await store.ensureSchema();
+
+  const adopted = await store.adoptLegacyComponentKey(
+    7,
+    'database',
+    'Database'
+  );
+  await store.ensureSchema();
+
+  const incidents = await store.listForServer(7);
+  assert.equal(incidents.total, 1);
+  assert.equal(incidents.items[0].id, adopted.id);
+  assert.equal(incidents.items[0].component_key, 'database');
+});
+
 test('filters incidents before pagination and orders newest episodes first', async (t) => {
   const { db, store } = await fixture(t);
   const oldest = await store.createEpisode(
@@ -444,24 +534,7 @@ test('uses the server history index for the common ordered page query', async (t
 test('migrates legacy incidents into component timelines exactly once', async (t) => {
   const db = new sqlite3.Database(':memory:');
   t.after(() => close(db));
-  await exec(
-    db,
-    `
-      CREATE TABLE health_incidents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        server_id INTEGER NOT NULL,
-        server_name TEXT NOT NULL,
-        status TEXT NOT NULL,
-        first_failed_at TEXT NOT NULL,
-        last_failed_at TEXT NOT NULL,
-        opened_at TEXT,
-        resolved_at TEXT,
-        resolution_reason TEXT,
-        consecutive_failures INTEGER NOT NULL,
-        last_error TEXT NOT NULL
-      )
-    `
-  );
+  await createLegacyIncidentTable(db);
   await run(
     db,
     `
@@ -554,27 +627,199 @@ test('migrates legacy incidents into component timelines exactly once', async (t
   assert.deepEqual(networkEpisode.events[0].messages, ['ECONNREFUSED']);
 });
 
+test('does not replay post-cutover legacy incidents when upgrading the schema', async (t) => {
+  const db = new sqlite3.Database(':memory:');
+  t.after(() => close(db));
+  await createLegacyIncidentTable(db);
+  await createComponentIncidentTable(db);
+  await insertOpenComponentIncident(db, {
+    legacyIncidentId: null
+  });
+  await run(
+    db,
+    `
+      INSERT INTO health_incidents (
+        server_id, server_name, status, first_failed_at, last_failed_at,
+        opened_at, resolved_at, resolution_reason, consecutive_failures,
+        last_error
+      ) VALUES (?, ?, 'open', ?, ?, ?, NULL, NULL, 2, ?)
+    `,
+    [
+      7,
+      'Magma Nodo 7',
+      T0,
+      T1,
+      T1,
+      JSON.stringify({
+        kind: 'component',
+        message: 'Components failed: Database',
+        components: ['Database']
+      })
+    ]
+  );
+
+  const store = createComponentIncidentStore(db);
+  await store.ensureSchema();
+  await store.ensureSchema();
+
+  const incidents = await all(
+    db,
+    `
+      SELECT server_id, component_key, status, legacy_incident_id
+      FROM health_component_incidents
+      ORDER BY id
+    `
+  );
+  assert.deepEqual(incidents, [{
+    server_id: 7,
+    component_key: 'Database',
+    status: 'open',
+    legacy_incident_id: null
+  }]);
+});
+
+test('does not infer migration scope from an empty preexisting component schema', async (t) => {
+  const db = new sqlite3.Database(':memory:');
+  t.after(() => close(db));
+  await createLegacyIncidentTable(db);
+  await createComponentIncidentTable(db);
+  await run(
+    db,
+    `
+      INSERT INTO health_incidents (
+        server_id, server_name, status, first_failed_at, last_failed_at,
+        opened_at, resolved_at, resolution_reason, consecutive_failures,
+        last_error
+      ) VALUES (?, ?, 'resolved', ?, ?, ?, ?, 'recovered', 2, ?)
+    `,
+    [
+      7,
+      'Magma Nodo 7',
+      T0,
+      T1,
+      T0,
+      T2,
+      JSON.stringify({
+        kind: 'component',
+        message: 'Components failed: Database',
+        components: ['Database']
+      })
+    ]
+  );
+
+  const store = createComponentIncidentStore(db);
+  await store.ensureSchema();
+
+  const incidents = await store.listForServer(7);
+  assert.equal(incidents.total, 0);
+});
+
+test('rolls back schema creation when migration scope initialization fails', async (t) => {
+  const db = new sqlite3.Database(':memory:');
+  t.after(() => close(db));
+  await createLegacyIncidentTable(db);
+  await run(
+    db,
+    `
+      INSERT INTO health_incidents (
+        server_id, server_name, status, first_failed_at, last_failed_at,
+        opened_at, resolved_at, resolution_reason, consecutive_failures,
+        last_error
+      ) VALUES (?, ?, 'resolved', ?, ?, ?, ?, 'recovered', 2, ?)
+    `,
+    [
+      7,
+      'Magma Nodo 7',
+      T0,
+      T1,
+      T0,
+      T2,
+      JSON.stringify({
+        kind: 'component',
+        message: 'Components failed: Database',
+        components: ['Database']
+      })
+    ]
+  );
+  await exec(db, 'CREATE TABLE health_component_migrations (invalid TEXT)');
+  const store = createComponentIncidentStore(db);
+
+  await assert.rejects(
+    store.ensureSchema(),
+    /no such column: migration_key/
+  );
+  const rolledBackSchema = await all(
+    db,
+    `
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'health_component_incidents'
+    `
+  );
+  assert.deepEqual(rolledBackSchema, []);
+
+  await exec(db, 'DROP TABLE health_component_migrations');
+  await store.ensureSchema();
+
+  const incidents = await store.listForServer(7);
+  assert.equal(incidents.total, 1);
+  assert.equal(incidents.items[0].legacy_incident_id, 1);
+});
+
+test('does not migrate a legacy incident that was pending at cutover', async (t) => {
+  const db = new sqlite3.Database(':memory:');
+  t.after(() => close(db));
+  await createLegacyIncidentTable(db);
+  await run(
+    db,
+    `
+      INSERT INTO health_incidents (
+        server_id, server_name, status, first_failed_at, last_failed_at,
+        opened_at, resolved_at, resolution_reason, consecutive_failures,
+        last_error
+      ) VALUES (?, ?, 'pending', ?, ?, NULL, NULL, NULL, 1, ?)
+    `,
+    [
+      7,
+      'Magma Nodo 7',
+      T0,
+      T0,
+      JSON.stringify({
+        kind: 'component',
+        message: 'Components failed: Database',
+        components: ['Database']
+      })
+    ]
+  );
+
+  const store = createComponentIncidentStore(db);
+  await store.ensureSchema();
+  await insertOpenComponentIncident(db, {
+    legacyIncidentId: null
+  });
+  await run(
+    db,
+    `
+      UPDATE health_incidents
+      SET status = 'open', opened_at = ?, consecutive_failures = 2
+      WHERE id = 1
+    `,
+    [T1]
+  );
+
+  await store.ensureSchema();
+
+  const [{ incidentCount }] = await all(
+    db,
+    'SELECT COUNT(*) AS incidentCount FROM health_component_incidents'
+  );
+  assert.equal(incidentCount, 1);
+});
+
 test('migrates each legacy closure reason to a truthful timeline event', async (t) => {
   const db = new sqlite3.Database(':memory:');
   t.after(() => close(db));
-  await exec(
-    db,
-    `
-      CREATE TABLE health_incidents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        server_id INTEGER NOT NULL,
-        server_name TEXT NOT NULL,
-        status TEXT NOT NULL,
-        first_failed_at TEXT NOT NULL,
-        last_failed_at TEXT NOT NULL,
-        opened_at TEXT,
-        resolved_at TEXT,
-        resolution_reason TEXT,
-        consecutive_failures INTEGER NOT NULL,
-        last_error TEXT NOT NULL
-      )
-    `
-  );
+  await createLegacyIncidentTable(db);
 
   for (const [index, reason] of [
     'recovered',
